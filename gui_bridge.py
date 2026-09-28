@@ -202,7 +202,7 @@ def bt_task(value):
         status = 'waiting'
     return task(value['gid'], name, 'bt', status, 100 * done / size if size else 0, size,
                 f'{rate / 1024:.0f} KiB/s' if rate else '', value.get('connections', '0'),
-                path or value.get('dir', ''), value.get('errorMessage', ''))
+                path if Path(path).is_absolute() else value.get('dir', ''), value.get('errorMessage', ''))
 
 
 def stop_engine(state, backend):

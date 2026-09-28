@@ -53,6 +53,8 @@ class StopEngineTests(unittest.TestCase):
             self.assertEqual(item['path'], str(state.resolve() / 'incoming/.incomplete/001.part'))
             bt = bridge.bt_task({'gid': 'a'*16, 'status': 'paused', 'files': [{'path': str(state / 'bt/fixture.bin')}], 'dir': str(state / 'bt')})
             self.assertEqual(bt['path'], str(state / 'bt/fixture.bin'))
+            metadata = bridge.bt_task({'gid': 'b'*16, 'status': 'paused', 'files': [{'path': '[METADATA]fixture'}], 'dir': str(state / 'bt')})
+            self.assertEqual(metadata['path'], str(state / 'bt'))
 
 
 if __name__ == '__main__':
