@@ -56,6 +56,13 @@ def main():
         assert item['name'] == 'gui-control-fixture.txt' and item['status'] == 'waiting'
         bridge.handle(root, {'action': 'pause', 'backend': 'ed2k', 'id': item['id']})
         assert bridge.snapshot(root)['tasks'][0]['status'] == 'paused'
+        assert Path(bridge.snapshot(root)['tasks'][0]['path']).name.endswith('.part')
+        bridge.handle(root, {'action': 'stop', 'backend': 'ed2k'})
+        assert not bridge.snapshot(root)['engines'][0]['running']
+        engine.start_ed2k(root)
+        assert bridge.snapshot(root)['tasks'][0]['id'] == item['id']
+        assert bridge.snapshot(root)['tasks'][0]['status'] == 'paused'
+        print('PASS: ed2k stop and restart preserves paused task and partial metadata.', flush=True)
         bridge.handle(root, {'action': 'resume', 'backend': 'ed2k', 'id': item['id']})
         assert 'Not connected' in engine.ec(root, 'status')
         bridge.handle(root, {'action': 'pause', 'backend': 'ed2k', 'id': item['id']})
@@ -110,6 +117,7 @@ disable-ipv6=true
 listen-port={port()}
 seed-time=0
 check-integrity=true
+input-file={work / 'session.txt'}
 save-session={work / 'session.txt'}
 ''')
     conf.chmod(0o600)
@@ -126,6 +134,19 @@ save-session={work / 'session.txt'}
         item = next(t for t in bridge.snapshot(root)['tasks'] if t['backend'] == 'bt')
         bridge.handle(root, {'action': 'pause', 'backend': 'bt', 'id': item['id']})
         assert bridge.rpc(root, 'tellStatus', [item['id']])['status'] == 'paused'
+        bridge.handle(root, {'action': 'stop', 'backend': 'bt'})
+        proc.wait(timeout=10)
+        assert not bridge.snapshot(root)['engines'][1]['running']
+        assert 'a' * 40 in (work / 'session.txt').read_text().lower()
+        proc = subprocess.Popen([engine.require('aria2c'), '--conf-path=' + str(conf)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(30):
+            try:
+                bridge.rpc(root, 'getVersion')
+                break
+            except OSError:
+                time.sleep(0.2)
+        assert bridge.rpc(root, 'tellStatus', [item['id']])['status'] == 'paused'
+        print('PASS: BT orderly stop and restart restores saved paused task.', flush=True)
         bridge.handle(root, {'action': 'resume', 'backend': 'bt', 'id': item['id']})
         bridge.handle(root, {'action': 'remove', 'backend': 'bt', 'id': item['id']})
         # The second deletion reaches aria2's real HTTP 400 / GID-not-found path.

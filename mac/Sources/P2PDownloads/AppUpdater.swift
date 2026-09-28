@@ -1,3 +1,4 @@
+import P2PCore
 import Combine
 import Foundation
 import Sparkle
@@ -26,15 +27,16 @@ final class AppUpdater: ObservableObject {
 
     var version: String {
         let info = Bundle.main.infoDictionary ?? [:]
-        return "v\(info["CFBundleShortVersionString"] as? String ?? "开发版") (\(info["CFBundleVersion"] as? String ?? "—"))"
+        return "v\(info["CFBundleShortVersionString"] as? String ?? "Development") (\(info["CFBundleVersion"] as? String ?? "—"))"
     }
 }
 
 struct UpdateMenuItems: View {
     @ObservedObject var updater: AppUpdater
+    let l: L10n
     var body: some View {
-        Button("检查更新…") { updater.check() }.disabled(!updater.canCheck)
-        Toggle("自动下载并安装更新", isOn: Binding(get: { updater.automatic }, set: updater.setAutomatic))
+        Button(l.text("检查更新…")) { updater.check() }.disabled(!updater.canCheck)
+        Toggle(l.text("自动下载并安装更新"), isOn: Binding(get: { updater.automatic }, set: updater.setAutomatic))
         Text("Apple Silicon · \(updater.version)")
     }
 }

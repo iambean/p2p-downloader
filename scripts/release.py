@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / 'mac/dist'
-APP = DIST / 'P2P Downloads.app'
+APP = DIST / 'Mora.app'
 SPARKLE = 'http://www.andymatuschak.org/xml-namespaces/sparkle'
 
 
@@ -97,8 +97,8 @@ def package():
         if arch != 'arm64':
             raise ValueError(f'{executable} must be arm64 only, got {arch}')
     run(['codesign', '--verify', '--deep', '--strict', APP])
-    zip_path = DIST / f'P2P-Downloads-{version}-arm64.zip'
-    dmg = DIST / f'P2P-Downloads-{version}-arm64.dmg'
+    zip_path = DIST / f'Mora-{version}-arm64.zip'
+    dmg = DIST / f'Mora-{version}-arm64.dmg'
     zip_path.unlink(missing_ok=True)
     run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', APP, zip_path])
     if os.environ.get('P2P_NOTARIZE') == 'true':
@@ -110,7 +110,7 @@ def package():
         stage = Path(tmp)
         run(['ditto', APP, stage / APP.name])
         (stage / 'Applications').symlink_to('/Applications')
-        run(['hdiutil', 'create', '-volname', 'P2P Downloads', '-srcfolder', stage, '-ov', '-format', 'UDZO', dmg])
+        run(['hdiutil', 'create', '-volname', 'Mora', '-srcfolder', stage, '-ov', '-format', 'UDZO', dmg])
     if os.environ.get('P2P_NOTARIZE') == 'true':
         run(['codesign', '--force', '--timestamp', '--sign', os.environ['P2P_SIGNING_IDENTITY'], dmg])
         notarize(dmg)
@@ -130,7 +130,7 @@ def sparkle_tool(name):
 def sign(repo):
     info = metadata(APP / 'Contents/Info.plist')
     version, build = info['CFBundleShortVersionString'], info['CFBundleVersion']
-    archive = DIST / f'P2P-Downloads-{version}-arm64.zip'
+    archive = DIST / f'Mora-{version}-arm64.zip'
     secret = os.environ.get('SPARKLE_EDDSA_PRIVATE_KEY', '')
     if not secret:
         raise RuntimeError('SPARKLE_EDDSA_PRIVATE_KEY is required; refusing an unsigned release.')
@@ -140,11 +140,11 @@ def sign(repo):
     ET.register_namespace('sparkle', SPARKLE)
     feed = ET.Element('rss', {'version': '2.0'})
     channel = ET.SubElement(feed, 'channel')
-    ET.SubElement(channel, 'title').text = 'P2P Downloads Updates'
+    ET.SubElement(channel, 'title').text = 'Mora Updates'
     ET.SubElement(channel, 'link').text = f'https://github.com/{repo}/releases'
     ET.SubElement(channel, 'description').text = 'Signed Apple Silicon application updates'
     item = ET.SubElement(channel, 'item')
-    ET.SubElement(item, 'title').text = f'P2P Downloads {version}'
+    ET.SubElement(item, 'title').text = f'Mora {version}'
     ET.SubElement(item, 'pubDate').text = format_datetime(datetime.now(timezone.utc))
     ET.SubElement(item, 'link').text = f'https://github.com/{repo}/releases/tag/v{version}'
     for key, value in [('version', build), ('shortVersionString', version), ('minimumSystemVersion', '13.0')]:
@@ -170,7 +170,7 @@ def publish(repo):
     version = info['CFBundleShortVersionString']
     tag = 'v' + version
     sha = os.environ.get('GITHUB_SHA') or run(['git', 'rev-parse', 'HEAD'])
-    assets = [DIST / f'P2P-Downloads-{version}-arm64.zip', DIST / f'P2P-Downloads-{version}-arm64.dmg',
+    assets = [DIST / f'Mora-{version}-arm64.zip', DIST / f'Mora-{version}-arm64.dmg',
               DIST / 'SHA256SUMS.txt', DIST / 'appcast.xml', DIST / 'release-manifest.json']
     for path in assets:
         if not path.is_file() or not path.stat().st_size:
@@ -192,7 +192,7 @@ def publish(repo):
     signing = 'Developer ID signed and notarized.' if manifest['signing'] != 'adhoc' else 'Ad-hoc signed; not Apple-notarized. On first installation macOS may require allowing the app in Privacy & Security.'
     notes.write_text(f'Apple Silicon only · macOS 13+\n\n{signing}\n\nIncludes signed Sparkle automatic updates. Existing Python 3, aMule and aria2 installations are reused.\n\nSource commit: `{sha}`\n')
     if not existing:
-        run(['gh', 'release', 'create', tag, '--repo', repo, '--verify-tag', '--draft', '--title', 'P2P Downloads ' + tag, '--notes-file', notes])
+        run(['gh', 'release', 'create', tag, '--repo', repo, '--verify-tag', '--draft', '--title', 'Mora ' + tag, '--notes-file', notes])
     run(['gh', 'release', 'upload', tag, '--repo', repo, '--clobber', *assets])
     run(['gh', 'release', 'edit', tag, '--repo', repo, '--draft=false', '--latest'])
     # Read back the exact uploaded bytes, not just the release status.

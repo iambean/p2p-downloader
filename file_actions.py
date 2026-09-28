@@ -66,6 +66,7 @@ def trash_helper():
     candidates = [os.environ.get('P2P_FILE_HELPER'),
                   str(Path(__file__).resolve().parent.parent.parent / 'Helpers/P2PFileOps'),
                   str(Path(__file__).resolve().parent / 'mac/.build/arm64-apple-macosx/release/P2PFileOps'),
+                  '/Applications/Mora.app/Contents/Helpers/P2PFileOps',
                   '/Applications/P2P Downloads.app/Contents/Helpers/P2PFileOps']
     for path in candidates:
         if path and Path(path).is_file() and os.access(path, os.X_OK):

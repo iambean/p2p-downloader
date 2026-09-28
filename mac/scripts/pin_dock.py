@@ -5,7 +5,7 @@ import plistlib
 import subprocess
 from urllib.parse import unquote
 
-app = Path('/Applications/P2P Downloads.app')
+app = Path('/Applications/Mora.app')
 if not app.is_dir():
     raise SystemExit('请先安装应用。')
 
@@ -17,20 +17,29 @@ def items():
 
 def matches(item):
     url = item.get('tile-data', {}).get('file-data', {}).get('_CFURLString', '')
-    return unquote(url).removeprefix('file://').rstrip('/') == str(app)
+    return unquote(url).removeprefix('file://').rstrip('/') in (str(app), '/Applications/P2P Downloads.app')
 
 
 before = items()
-if any(matches(item) for item in before):
-    print('已固定到 Dock。')
-else:
-    entry = {'tile-type': 'file-tile', 'tile-data': {
-        'file-data': {'_CFURLString': app.as_uri() + '/', '_CFURLStringType': 15},
-        'file-label': 'P2P Downloads'}}
-    subprocess.run(['defaults', 'write', 'com.apple.dock', 'persistent-apps', '-array-add',
-                    plistlib.dumps(entry).decode()], check=True)
+entry = {'tile-type': 'file-tile', 'tile-data': {
+    'file-data': {'_CFURLString': app.as_uri() + '/', '_CFURLStringType': 15},
+    'file-label': 'Mora', 'bundle-identifier': 'com.xinfan.p2p-downloads'}}
+updated = []
+replaced = False
+for item in before:
+    if matches(item):
+        if not replaced:
+            updated.append(entry)
+            replaced = True
+    else:
+        updated.append(item)
+if not replaced:
+    updated.append(entry)
+if updated != before:
+    subprocess.run(['defaults', 'write', 'com.apple.dock', 'persistent-apps', '-array',
+                    *[plistlib.dumps(item).decode() for item in updated]], check=True)
     after = items()
-    if not any(matches(item) for item in after) or len(after) != len(before) + 1:
+    if after != updated:
         raise SystemExit('Dock 写入后核验失败，请检查 Dock 设置。')
     subprocess.run(['killall', 'Dock'], check=False, capture_output=True)
-    print('已固定到 Dock；原有项目顺序保留。')
+print('Mora 已固定到 Dock；原有位置和其他项目保留。')

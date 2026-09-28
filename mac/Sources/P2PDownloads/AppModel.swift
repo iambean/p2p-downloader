@@ -19,6 +19,18 @@ final class AppModel: ObservableObject {
     @Published var pendingDeletion: DownloadTask?
     @Published var retainedFilesPath: String?
     var panelVisible = false { didSet { if timer != nil { scheduleRefresh() } } }
+    @Published var language: AppLanguage = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "system") ?? .system
+    var l: L10n {
+        let preferred = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["AppleLanguages"] as? [String]
+        return L10n(language.resolved(preferred: preferred ?? Locale.preferredLanguages))
+    }
+    func setLanguage(_ value: AppLanguage) {
+        language = value
+        guard !demo else { return }
+        UserDefaults.standard.set(value.rawValue, forKey: "appLanguage")
+        if value == .system { UserDefaults.standard.removeObject(forKey: "AppleLanguages") }
+        else { UserDefaults.standard.set([value.rawValue], forKey: "AppleLanguages") }
+    }
     let demo: Bool
     let updater: AppUpdater
     private let client: BridgeClient
@@ -34,9 +46,11 @@ final class AppModel: ObservableObject {
         let base = Bundle.main.resourceURL ?? Bundle.main.bundleURL
         client = BridgeClient(script: base.appendingPathComponent("p2p/gui_bridge.py"),
                               stateDirectory: ProcessInfo.processInfo.environment["P2P_STATE_DIR"])
+        if let index = arguments.firstIndex(of: "--language"), arguments.count > index + 1,
+           let chosen = AppLanguage(rawValue: arguments[index + 1]) { language = chosen }
         if demo {
             snapshot = .demo
-            showAdd = true
+            showAdd = arguments.contains("--preview-add")
         }
     }
 
@@ -120,21 +134,21 @@ final class AppModel: ObservableObject {
             var errors = batch.errors
             var added = 0
             if demo {
-                feedback = "已识别 \(batch.sources.count) 个项目；预览模式未执行下载。"
+                feedback = l.format("已识别 %d 个项目；预览模式未执行下载。", batch.sources.count)
             } else {
                 for (index, source) in batch.sources.enumerated() {
-                    busyMessage = "正在添加 \(index + 1) / \(batch.sources.count)，首次启动可能需要一分钟…"
+                    busyMessage = l.format("正在添加 %d / %d，首次启动可能需要一分钟…", index + 1, batch.sources.count)
                     do {
                         _ = try await client.request(["action": "add", "source": source, "output": destination])
                         added += 1
-                    } catch { errors.append("第 \(index + 1) 项：\(error.localizedDescription)") }
+                    } catch { errors.append(l.format("第 %d 项：%@", index + 1, l.text(error.localizedDescription))) }
                 }
-                if added > 0 { feedback = "已添加 \(added) 个下载任务。" }
+                if added > 0 { feedback = l.format("已添加 %d 个下载任务。", added) }
             }
             if !errors.isEmpty {
-                let prefix = added > 0 ? "已添加 \(added) 个任务；其余项目需要处理：\n" : ""
-                self.error = prefix + errors.prefix(5).joined(separator: "\n")
-                    + (errors.count > 5 ? "\n另有 \(errors.count - 5) 项未能添加。" : "")
+                let prefix = added > 0 ? l.format("已添加 %d 个任务；其余项目需要处理：\n", added) : ""
+                self.error = prefix + errors.prefix(5).map { l.text($0) }.joined(separator: "\n")
+                    + (errors.count > 5 ? l.format("\n另有 %d 项未能添加。", errors.count - 5) : "")
             }
             isBusy = false
             refresh()
@@ -147,7 +161,7 @@ final class AppModel: ObservableObject {
         panel.allowedContentTypes = [UTType(filenameExtension: "torrent") ?? .data]
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "添加种子"
+        panel.prompt = l.text("添加种子")
         if panel.runModal() == .OK, let url = panel.url {
             perform(["action": "add", "source": url.path, "output": output])
         }
@@ -158,7 +172,7 @@ final class AppModel: ObservableObject {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
-        panel.prompt = "选择下载目录"
+        panel.prompt = l.text("选择下载目录")
         if panel.runModal() == .OK, let url = panel.url {
             output = url.path
             UserDefaults.standard.set(output, forKey: "outputDirectory")
@@ -166,10 +180,13 @@ final class AppModel: ObservableObject {
     }
 
     func reveal(_ task: DownloadTask) {
-        guard !task.path.isEmpty else { return }
-        let url = URL(fileURLWithPath: task.path)
-        if task.isFinished { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-        else { NSWorkspace.shared.open(url) }
+        let path = task.path.isEmpty ? (snapshot.folders?[task.backend] ?? output) : task.path
+        guard let destination = FinderDestination.resolve(path: path) else {
+            error = "下载目录不可用，请确认磁盘已连接。"
+            return
+        }
+        if destination.selectFile { NSWorkspace.shared.activateFileViewerSelecting([destination.url]) }
+        else { NSWorkspace.shared.open(destination.url) }
     }
 
     func openFolder() {

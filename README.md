@@ -1,8 +1,8 @@
-# P2P 命令行下载工具
+# Mora · 轻量下载
 
 [GitHub Releases](https://github.com/iambean/p2p-downloader/releases) · [CI/CD 与自动更新](RELEASING.md)
 
-已有 Apple Silicon 原生图形客户端：[Mac 客户端说明](mac/README.md)。提供主窗口、Dock 图标和菜单栏入口，复用同一 ed2k 队列。
+Apple Silicon 原生图形客户端与独立命令行工具：[Mac 客户端说明](mac/README.md)。提供主窗口、Dock 图标和菜单栏入口，复用同一 ed2k 队列。
 
 独立运行的 `p2p` 命令，不依赖 Codex 或 skill。支持 macOS/Linux、Python 3.9+；当前在 macOS Apple Silicon 验证。ed2k 使用 aMule 3.1+，BitTorrent v1 磁力链接和种子使用 aria2。v2-only、IPFS、迅雷专有链接暂不支持。
 

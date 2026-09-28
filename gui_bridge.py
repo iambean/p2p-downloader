@@ -202,7 +202,34 @@ def bt_task(value):
         status = 'waiting'
     return task(value['gid'], name, 'bt', status, 100 * done / size if size else 0, size,
                 f'{rate / 1024:.0f} KiB/s' if rate else '', value.get('connections', '0'),
-                path if status == 'complete' else value.get('dir', ''), value.get('errorMessage', ''))
+                path or value.get('dir', ''), value.get('errorMessage', ''))
+
+
+def stop_engine(state, backend):
+    if backend not in ('bt', 'ed2k'):
+        raise ValueError('未知下载引擎。')
+    if backend == 'bt':
+        settings = read_json(state / 'aria2-gui/rpc.json', {})
+        if not settings or refused_local_port(settings['port']):
+            return {'message': '引擎尚未运行。'}
+        port = settings['port']
+        # Persist the queue before requesting an orderly shutdown. Never kill
+        # an engine when authentication or saving its session fails.
+        rpc(state, 'saveSession')
+        rpc(state, 'shutdown')
+    else:
+        if not (state / 'amule/config/amule.conf').exists():
+            return {'message': '引擎尚未运行。'}
+        port = cli.config(state).getint('ExternalConnect', 'ECPort')
+        if refused_local_port(port):
+            return {'message': '引擎尚未运行。'}
+        engine.ec(state, 'shutdown')
+    deadline = time.monotonic() + 12
+    while not refused_local_port(port):
+        if time.monotonic() >= deadline:
+            raise RuntimeError('引擎正在停止，请稍后刷新。')
+        time.sleep(0.2)
+    return {'message': '引擎已停止，任务和文件已保留。'}
 
 
 def refused_local_port(port):
@@ -233,6 +260,9 @@ def snapshot(state):
             if speed:
                 result['downloadSpeed'] = speed[1].strip()
             queue = parse_queue(engine.ec(state, 'show dl'), metadata)
+            temp = Path(cli.config(state).get('eMule', 'TempDir'))
+            for item in queue:
+                item['path'] = str(temp / item['part_met'].removesuffix('.met')) if item.get('part_met') else str(temp)
             result['tasks'] += queue
             result['tasks'] += parse_shared(engine.ec(state, 'show shared'), {t['id'] for t in queue})
         except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
@@ -449,6 +479,8 @@ def handle(state, request):
     if action == 'snapshot':
         return snapshot(state)
     with cli.mutation_lock(state):
+        if action == 'stop':
+            return stop_engine(state, request['backend'])
         if action == 'remove':
             return remove_task(state, request)
         if action == 'add':
@@ -514,8 +546,10 @@ def handle(state, request):
                     cli.bootstrap(state)
                     engine.start_ed2k(state)
                 engine.ec(state, 'connect')
-            else:
+            elif request['backend'] == 'bt':
                 start_bt(state)
+            else:
+                raise ValueError('未知下载引擎。')
             return {'message': '引擎已启动'}
         raise ValueError('未知操作。')
 

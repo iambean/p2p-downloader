@@ -16,7 +16,7 @@ def main():
     binary_dir = subprocess.check_output(['swift', 'build', '-c', 'release', '--arch', 'arm64', '--show-bin-path'], cwd=ROOT / 'mac', text=True).strip()
     with tempfile.TemporaryDirectory(prefix='p2p-update-probe-') as tmp:
         old = Path(tmp) / 'Old P2P.app'
-        subprocess.run(['ditto', str(DIST / 'P2P Downloads.app'), str(old)], check=True)
+        subprocess.run(['ditto', str(DIST / 'Mora.app'), str(old)], check=True)
         plist = old / 'Contents/Info.plist'
         info = plistlib.loads(plist.read_bytes())
         info['CFBundleVersion'] = '0'

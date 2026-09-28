@@ -17,37 +17,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "P2P 下载")
+        item.button?.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "Mora")
         item.button?.image?.isTemplate = true
         item.button?.target = self
         item.button?.action = #selector(toggle)
-        item.button?.toolTip = "P2P 下载"
+        item.button?.toolTip = "Mora"
         statusItem = item
         let previewDelete = model.demo && CommandLine.arguments.contains("--preview-delete")
         let content = previewDelete
             ? AnyView(DeleteTaskSheet(item: model.tasks[1], model: model))
             : AnyView(PanelView(model: model))
         let host = NSHostingView(rootView: content)
-        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 660),
-                             styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        panel.title = "P2P 下载"
-        panel.setFrameAutosaveName("P2PDownloadsMainWindow")
+        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        panel.title = "Mora"
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovableByWindowBackground = true
+        panel.contentMinSize = NSSize(width: 640, height: 520)
+        panel.appearance = NSAppearance(named: .darkAqua)
+        if !model.demo { panel.setFrameAutosaveName("MoraFloatingWindow") }
         panel.contentView = host
         panel.delegate = self
         panel.isReleasedWhenClosed = false
-        panel.backgroundColor = .windowBackgroundColor
+        panel.backgroundColor = NSColor(srgbRed: 0.153, green: 0.129, blue: 0.173, alpha: 1)
         panel.hasShadow = true
         panel.level = .normal
         panel.collectionBehavior = [.moveToActiveSpace]
         panel.hidesOnDeactivate = false
         self.panel = panel
         self.host = host
-        if !panel.setFrameUsingName("P2PDownloadsMainWindow") { panel.center() }
+        if model.demo || !panel.setFrameUsingName("MoraFloatingWindow") { panel.center() }
         model.start()
         if let index = CommandLine.arguments.firstIndex(of: "--render-preview"), CommandLine.arguments.count > index + 1 {
             let output = CommandLine.arguments[index + 1]
-            panel.appearance = NSAppearance(named: .aqua)
-            if previewDelete { panel.setContentSize(host.fittingSize) }
+            panel.appearance = NSAppearance(named: .darkAqua)
+            if CommandLine.arguments.contains("--preview-compact") { panel.setContentSize(NSSize(width: 640, height: 520)) }
+            if previewDelete { panel.contentMinSize = NSSize(width: 1, height: 1); panel.setContentSize(host.fittingSize) }
             panel.center()
             panel.makeKeyAndOrderFront(nil)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
@@ -78,8 +84,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        // AppKit can interpret separate CLI option values as files to open.
+        // Exclude only our explicit preview/language arguments, never user drops.
+        let arguments = CommandLine.arguments
+        let optionPaths = ["--language", "--render-preview"].compactMap { option -> String? in
+            guard let index = arguments.firstIndex(of: option), arguments.count > index + 1 else { return nil }
+            return URL(fileURLWithPath: arguments[index + 1]).standardizedFileURL.path
+        }
+        let requested = filenames.filter { !optionPaths.contains(URL(fileURLWithPath: $0).standardizedFileURL.path) }
+        guard !requested.isEmpty else { sender.reply(toOpenOrPrint: .success); return }
         showPanel()
-        let providers = filenames.map { NSItemProvider(object: URL(fileURLWithPath: $0) as NSURL) }
+        let providers = requested.map { NSItemProvider(object: URL(fileURLWithPath: $0) as NSURL) }
         sender.reply(toOpenOrPrint: model.acceptDrop(providers) ? .success : .failure)
     }
 

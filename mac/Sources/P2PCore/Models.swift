@@ -49,12 +49,17 @@ public struct EngineState: Codable, Identifiable {
     public let running: Bool
     public let detail: String
     public let error: String?
+    public var explanation: String {
+        if error != nil { return "后台引擎控制连接异常，可查看详情。" }
+        return running ? "引擎已运行，可接收任务；实际下载仍取决于来源。" : "后台引擎尚未运行，添加任务时会自动启动。"
+    }
     public var title: String {
         if !available { return "未安装" }
+        if error != nil { return "未就绪" }
         if !running { return "未启动" }
         if detail.contains("Not connected") || detail.contains("connecting") { return "连接中" }
-        if detail.contains("LowID") { return "已连接 · LowID" }
-        return "已就绪"
+        if detail.contains("LowID") { return "运行中 · LowID" }
+        return "运行中"
     }
 }
 

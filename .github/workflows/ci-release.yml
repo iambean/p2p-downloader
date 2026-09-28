@@ -62,8 +62,8 @@ jobs:
         with:
           name: apple-silicon-${{ github.sha }}
           path: |
-            mac/dist/P2P-Downloads-*.zip
-            mac/dist/P2P-Downloads-*.dmg
+            mac/dist/Mora-*.zip
+            mac/dist/Mora-*.dmg
             mac/dist/SHA256SUMS.txt
           retention-days: 14
           if-no-files-found: error
