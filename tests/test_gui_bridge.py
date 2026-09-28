@@ -1,4 +1,9 @@
 import json
+import contextlib
+import errno
+import io
+import socket
+import urllib.error
 from pathlib import Path
 import subprocess
 import sys
@@ -13,6 +18,33 @@ HASH = '0123456789abcdef0123456789abcdef'
 
 
 class GUIBridgeTests(unittest.TestCase):
+    def test_stopped_engines_are_normal_states_without_error_details(self):
+        with tempfile.TemporaryDirectory() as tmp, socket.socket() as reserved, contextlib.redirect_stdout(io.StringIO()):
+            reserved.bind(('127.0.0.1', 0))
+            port = reserved.getsockname()[1]
+            reserved.close()  # A bound-but-not-listening socket can time out on macOS.
+            state = Path(tmp)
+            bridge.engine.setup_ed2k(state, str(state / 'incoming'), port)
+            bridge.save_json(state / 'aria2-gui/rpc.json', {'port': port, 'secret': 'test'})
+            ec_error = RuntimeError(f'Connection Failed. Unable to connect to 127.0.0.1:{port}')
+            rpc_error = urllib.error.URLError(ConnectionRefusedError(errno.ECONNREFUSED, 'Connection refused'))
+            with patch('gui_bridge.engine.ec', side_effect=ec_error), patch('gui_bridge.rpc', side_effect=rpc_error):
+                engines = bridge.snapshot(state)['engines']
+            for item in engines:
+                self.assertFalse(item['running'])
+                self.assertNotIn('error', item)
+                self.assertIn('未启动', item['detail'])
+
+    def test_authentication_errors_are_not_hidden_as_stopped(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            state = Path(tmp)
+            bridge.engine.setup_ed2k(state, str(state / 'incoming'), 14712)
+            bridge.save_json(state / 'aria2-gui/rpc.json', {'port': 1, 'secret': 'test'})
+            with patch('gui_bridge.engine.ec', side_effect=RuntimeError('Authentication failed')), patch('gui_bridge.rpc', side_effect=bridge.RPCError('tellActive', 1, 'Unauthorized')):
+                engines = bridge.snapshot(state)['engines']
+            self.assertIn('Authentication failed', engines[0]['error'])
+            self.assertIn('Unauthorized', engines[1]['error'])
+
     def test_remove_paused_bt_clears_queue_result_and_persists_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             gid = '0123456789abcdef'

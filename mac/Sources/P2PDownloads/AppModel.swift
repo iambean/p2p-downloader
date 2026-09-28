@@ -28,7 +28,8 @@ final class AppModel: ObservableObject {
     var activeCount: Int { tasks.filter { TaskFilter.active.matches($0) }.count }
 
     init() {
-        demo = CommandLine.arguments.contains("--demo") || CommandLine.arguments.contains("--render-preview")
+        let arguments = CommandLine.arguments
+        demo = !arguments.contains("--live") && (arguments.contains("--demo") || arguments.contains("--render-preview"))
         updater = AppUpdater(enabled: !demo)
         let base = Bundle.main.resourceURL ?? Bundle.main.bundleURL
         client = BridgeClient(script: base.appendingPathComponent("p2p/gui_bridge.py"),

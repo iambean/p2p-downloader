@@ -5,6 +5,7 @@ Snapshots never start an engine. Mutations are serialized with the CLI lock.
 import argparse
 import base64
 import contextlib
+import errno
 import io
 import json
 import os
@@ -204,6 +205,17 @@ def bt_task(value):
                 path if status == 'complete' else value.get('dir', ''), value.get('errorMessage', ''))
 
 
+def refused_local_port(port):
+    with socket.socket() as probe:
+        probe.settimeout(0.25)
+        return probe.connect_ex(('127.0.0.1', port)) == errno.ECONNREFUSED
+
+
+def connection_refused(error):
+    reason = error.reason if isinstance(error, urllib.error.URLError) else error
+    return isinstance(reason, OSError) and reason.errno == errno.ECONNREFUSED
+
+
 def snapshot(state):
     result = dict(tasks=[], engines=[], downloadSpeed='0 B/s', folders={})
     metadata = read_json(state / 'gui/tasks.json', {})
@@ -224,8 +236,15 @@ def snapshot(state):
             result['tasks'] += queue
             result['tasks'] += parse_shared(engine.ec(state, 'show shared'), {t['id'] for t in queue})
         except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-            amule['detail'] = '控制连接不可用'
-            amule['error'] = str(exc)
+            amule['running'] = False
+            # A stopped local service is expected after reboot/explicit shutdown.
+            # Do not hide authentication, protocol, or filesystem failures.
+            port = cli.config(state).getint('ExternalConnect', 'ECPort')
+            if f'Unable to connect to 127.0.0.1:{port}' in str(exc) and refused_local_port(port):
+                amule['detail'] = '引擎未启动，可点击下方按钮启动'
+            else:
+                amule['detail'] = '控制连接不可用'
+                amule['error'] = str(exc)
     result['engines'].append(amule)
     bt = dict(id='bt', name='BitTorrent', available=bool(engine.binary('aria2c')), running=False, detail='未启动')
     if (state / 'aria2-gui/rpc.json').exists():
@@ -234,8 +253,12 @@ def snapshot(state):
             bt.update(running=True, detail='就绪')
             result['tasks'] += [parsed for value in values if (parsed := bt_task(value)) is not None]
         except (OSError, RuntimeError) as exc:
-            bt['detail'] = '控制连接不可用'
-            bt['error'] = str(exc)
+            bt['running'] = False
+            if connection_refused(exc):
+                bt['detail'] = '引擎未启动，可点击下方按钮启动'
+            else:
+                bt['detail'] = '控制连接不可用'
+                bt['error'] = str(exc)
     result['engines'].append(bt)
     result['folders']['bt'] = str(Path.home() / 'Downloads/P2P/bittorrent')
     hidden = read_json(state / 'gui/hidden-completed.json', [])

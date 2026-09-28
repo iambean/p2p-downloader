@@ -30,6 +30,8 @@ p2p install-backend amule
 
 eD2k 与命令行共用 `~/.local/share/p2p-downloader/amule`，可显示已有 CLI 队列。**程序启动和刷新只读取状态，不会自动启动、暂停或重新连接下载引擎。** 添加任务或点击启动时才执行对应操作。
 
+重启系统或主动关闭后台后，引擎显示“未启动”属于正常状态，菜单中保留启动入口；认证失败等实际异常仍提供错误详情。开发预览只在明确传入 `--demo` / `--render-preview` 时启用，`--live` 可强制使用实际任务界面。
+
 GUI 的 BitTorrent 使用独立的 `aria2-gui` 后台服务：仅监听本机地址，随机 RPC 凭证权限 0600，每 15 秒保存未完成任务，添加/暂停/恢复时立即保存。它不接管 CLI 原有前台 aria2 进程。同一资源不要同时从 CLI 和 GUI 发起。aria2 的已完成结果列表由运行中的引擎保留；重启引擎后不保证保留全部历史记录。
 
 后台进程日志位于 `~/.local/share/p2p-downloader/amule/config/` 和 `~/.local/share/p2p-downloader/aria2-gui/`。aMule 是独立客户端，其自身的 Dock 图标可能仍显示。
