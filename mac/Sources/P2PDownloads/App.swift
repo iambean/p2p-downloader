@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var host: NSHostingView<AnyView>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         NSApp.setActivationPolicy(.regular)
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "Mora")
@@ -28,31 +29,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ? AnyView(DeleteTaskSheet(item: model.tasks[1], model: model))
             : AnyView(PanelView(model: model))
         let host = NSHostingView(rootView: content)
-        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
+        let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         panel.title = "Mora"
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
         panel.isMovableByWindowBackground = true
-        panel.contentMinSize = NSSize(width: 640, height: 520)
+        panel.contentMinSize = NSSize(width: 720, height: 560)
         panel.appearance = NSAppearance(named: .darkAqua)
-        if !model.demo { panel.setFrameAutosaveName("MoraFloatingWindow") }
+        if !model.demo { panel.setFrameAutosaveName("MoraEditorialWindow") }
         panel.contentView = host
         panel.delegate = self
         panel.isReleasedWhenClosed = false
-        panel.backgroundColor = NSColor(srgbRed: 0.153, green: 0.129, blue: 0.173, alpha: 1)
+        panel.backgroundColor = NSColor(srgbRed: 0.141, green: 0.125, blue: 0.153, alpha: 1)
         panel.hasShadow = true
         panel.level = .normal
         panel.collectionBehavior = [.moveToActiveSpace]
         panel.hidesOnDeactivate = false
         self.panel = panel
         self.host = host
-        if model.demo || !panel.setFrameUsingName("MoraFloatingWindow") { panel.center() }
+        if model.demo || !panel.setFrameUsingName("MoraEditorialWindow") { panel.center() }
         model.start()
         if let index = CommandLine.arguments.firstIndex(of: "--render-preview"), CommandLine.arguments.count > index + 1 {
             let output = CommandLine.arguments[index + 1]
             panel.appearance = NSAppearance(named: .darkAqua)
-            if CommandLine.arguments.contains("--preview-compact") { panel.setContentSize(NSSize(width: 640, height: 520)) }
+            if CommandLine.arguments.contains("--preview-compact") { panel.setContentSize(NSSize(width: 720, height: 560)) }
             if previewDelete { panel.contentMinSize = NSSize(width: 1, height: 1); panel.setContentSize(host.fittingSize) }
             panel.center()
             panel.makeKeyAndOrderFront(nil)

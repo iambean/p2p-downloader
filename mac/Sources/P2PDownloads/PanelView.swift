@@ -3,11 +3,29 @@ import SwiftUI
 import P2PCore
 
 enum MoraStyle {
-    static let ink = Color(red: 0.153, green: 0.129, blue: 0.173)
+    static let ink = Color(red: 0.141, green: 0.125, blue: 0.153)
     static let paper = Color(red: 0.965, green: 0.935, blue: 0.898)
-    static let coral = Color(red: 0.945, green: 0.631, blue: 0.533)
-    static let island = Color(red: 0.302, green: 0.267, blue: 0.333)
-    static let muted = Color(red: 0.760, green: 0.721, blue: 0.788)
+    static let coral = Color(red: 0.88, green: 0.56, blue: 0.53)
+    static let island = Color(red: 0.19, green: 0.17, blue: 0.20)
+    static let muted = Color(red: 0.70, green: 0.67, blue: 0.71)
+    static let rule = paper.opacity(0.13)
+    // Decoded once and reused across snapshots; decoration never intercepts input.
+    static let stillLife: NSImage? = Bundle.main.resourceURL
+        .flatMap { NSImage(contentsOf: $0.appendingPathComponent("Artwork/WineStillLife.png")) }
+}
+
+private struct MoraButtonStyle: ButtonStyle {
+    var prominent = false
+    @Environment(\.isEnabled) private var enabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .padding(.horizontal, 18).padding(.vertical, 10)
+            .foregroundStyle(prominent ? MoraStyle.ink : MoraStyle.paper)
+            .background(prominent ? MoraStyle.coral : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(prominent ? Color.clear : MoraStyle.rule))
+            .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
+    }
 }
 
 struct PanelView: View {
@@ -21,7 +39,7 @@ struct PanelView: View {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if model.showAdd { addForm } else { dropWell }
+                    if model.showAdd { addForm } else { entryBar }
                     if model.isBusy {
                         HStack(spacing: 10) {
                             ProgressView().controlSize(.small)
@@ -41,7 +59,7 @@ struct PanelView: View {
                     filters
                     if model.filteredTasks.isEmpty { emptyState }
                     else {
-                        LazyVStack(spacing: 12) {
+                        LazyVStack(spacing: 0) {
                             ForEach(model.filteredTasks, id: \.key) { item in
                                 TaskRow(item: item, l: l, busy: model.isBusy, control: {
                                     model.perform(["action": item.status == "paused" ? "resume" : "pause", "id": item.id, "backend": item.backend])
@@ -49,130 +67,140 @@ struct PanelView: View {
                             }
                         }
                     }
-                }.padding(.horizontal, 28).padding(.bottom, 22)
+                }.padding(.horizontal, 36).padding(.bottom, 22)
             }
             footer
         }
         .padding(.top, 16)
-        .frame(minWidth: 640, minHeight: 520)
+        .frame(minWidth: 720, minHeight: 560)
         .background(MoraStyle.ink.ignoresSafeArea())
         .foregroundStyle(MoraStyle.paper)
         .tint(MoraStyle.coral)
         .preferredColorScheme(.dark)
         .sheet(item: $model.pendingDeletion) { item in DeleteTaskSheet(item: item, model: model) }
+        .onAppear {
+            if model.demo && CommandLine.arguments.contains("--preview-drop") { dropTargeted = true }
+        }
         .onDrop(of: DropSources.types, isTargeted: $dropTargeted) { model.acceptDrop($0) }
-        .overlay {
+        .overlay(alignment: .top) {
             if dropTargeted {
                 ZStack {
                     MoraStyle.ink.opacity(0.97)
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: 12)
                         .stroke(MoraStyle.coral, style: StrokeStyle(lineWidth: 2, dash: [7, 5])).padding(18)
-                    VStack(spacing: 14) {
-                        Image(systemName: "arrow.down").font(.system(size: 40, weight: .light)).foregroundStyle(MoraStyle.coral)
+                    VStack(spacing: 8) {
+                        Image(systemName: "arrow.down").font(.system(size: 24, weight: .light)).foregroundStyle(MoraStyle.coral)
                         Text(l.text(model.isBusy ? "请等待当前操作完成" : "松开以添加下载"))
-                            .font(.system(size: 21, weight: .medium))
+                            .font(.system(size: 17, weight: .medium))
                         Text(l.text("ed2k · 磁力链接 · .torrent 文件")).font(.system(size: 13))
                         Text(l.text("支持一次拖入多个项目")).font(.system(size: 12)).foregroundStyle(MoraStyle.muted)
                     }
-                }.allowsHitTesting(false)
+                }.frame(height: 150).padding(.horizontal, 22).padding(.top, 202).allowsHitTesting(false)
             }
         }
     }
 
     private var header: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 24) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Mora").font(.custom("Baskerville-BoldItalic", size: 60)).tracking(-2)
+                Text("Mora").font(.custom("Baskerville-Italic", size: 82)).tracking(-2)
                     .accessibilityAddTraits(.isHeader)
                 Text(l.text(model.demo ? "界面预览 · 示例任务" : "为下一份期待，留一点空间。"))
-                    .font(.system(size: 13)).foregroundStyle(MoraStyle.muted)
+                    .font(.system(size: 14)).foregroundStyle(MoraStyle.muted)
             }
-            Spacer()
-            if model.isRefreshing { ProgressView().controlSize(.small) }
-            Button {
-                model.showAdd.toggle()
-                linkFocused = model.showAdd
-            } label: {
-                Label(l.text(model.showAdd ? "收起" : "添加"), systemImage: model.showAdd ? "minus" : "plus")
-                    .font(.system(size: 15, weight: .medium)).padding(.horizontal, 22).padding(.vertical, 12)
-                    .foregroundStyle(MoraStyle.ink).background(MoraStyle.coral, in: Capsule())
-            }.buttonStyle(.plain).help(l.text("添加下载")).keyboardShortcut("n", modifiers: .command)
-        }.padding(.horizontal, 28).padding(.top, 6).padding(.bottom, 20)
+            Spacer(minLength: 0)
+            if let art = MoraStyle.stillLife {
+                Image(nsImage: art).resizable().scaledToFit()
+                    .frame(width: 270, height: 180)
+                    .accessibilityHidden(true).allowsHitTesting(false)
+            }
+        }.padding(.horizontal, 36).padding(.top, 0).padding(.bottom, 14)
     }
 
-    private var dropWell: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            Button { model.showAdd = true; linkFocused = true } label: {
-                VStack(spacing: 6) {
-                    Image(systemName: "arrow.down").font(.system(size: 18, weight: .light))
-                    Text(l.text("拖入链接或种子文件")).font(.system(size: 14))
-                }.foregroundStyle(MoraStyle.muted).frame(maxWidth: .infinity).frame(height: 68)
-                    .contentShape(RoundedRectangle(cornerRadius: 22))
-                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(MoraStyle.muted.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 4])))
-            }.buttonStyle(.plain).help(l.text("点击粘贴链接，也可直接拖入文件"))
+    private var entryBar: some View {
+        HStack(spacing: 20) {
+            HStack(spacing: 12) {
+                Image(systemName: "link").font(.system(size: 17, weight: .light)).foregroundStyle(MoraStyle.muted)
+                TextField(l.text("粘贴链接，或拖入种子文件"), text: $model.link)
+                    .textFieldStyle(.plain).font(.system(size: 13)).focused($linkFocused)
+                    .accessibilityLabel(l.text("下载链接")).onSubmit { model.addLink() }
+                Button(l.text("添加")) {
+                    if model.link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        model.showAdd = true; linkFocused = true
+                    } else { model.addLink() }
+                }.buttonStyle(MoraButtonStyle(prominent: true)).disabled(model.isBusy)
+            }.padding(.leading, 14).padding(1)
+                .overlay(RoundedRectangle(cornerRadius: 9).stroke(linkFocused ? MoraStyle.coral.opacity(0.65) : MoraStyle.rule))
             Button(l.text("导入种子…")) { model.importTorrent() }
-                .font(.system(size: 11)).buttonStyle(.plain).foregroundStyle(MoraStyle.muted)
-                .disabled(model.isBusy)
+                .buttonStyle(.plain).font(.system(size: 12)).fixedSize().disabled(model.isBusy)
         }
+        .background {
+            Button("") { model.showAdd = true; linkFocused = true }
+                .keyboardShortcut("n", modifiers: .command).hidden().accessibilityHidden(true)
+        }.disabled(model.isBusy)
     }
 
     private var filters: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 26) {
             ForEach(TaskFilter.allCases, id: \.self) { filter in
                 Button { model.filter = filter } label: {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 6) {
                         Text(l.text(filter.rawValue))
-                        Text("\(model.tasks.filter(filter.matches).count)").font(.system(size: 10)).opacity(0.65)
-                    }
-                    .font(.system(size: 12, weight: model.filter == filter ? .medium : .regular))
-                    .padding(.horizontal, 13).padding(.vertical, 7)
-                    .foregroundStyle(model.filter == filter ? MoraStyle.ink : MoraStyle.muted)
-                    .background(model.filter == filter ? MoraStyle.paper : .clear, in: Capsule())
+                        Text("\(model.tasks.filter(filter.matches).count)").font(.system(size: 11)).foregroundStyle(MoraStyle.muted)
+                    }.font(.system(size: 13))
+                        .foregroundStyle(model.filter == filter ? MoraStyle.paper : MoraStyle.muted)
+                        .padding(.horizontal, 4).padding(.vertical, 14)
+                        .overlay(alignment: .bottom) {
+                            if model.filter == filter { MoraStyle.coral.frame(height: 2) }
+                        }
                 }.buttonStyle(.plain)
                     .accessibilityAddTraits(model.filter == filter ? [.isSelected] : [])
             }
             Spacer(minLength: 0)
-        }.accessibilityElement(children: .contain).accessibilityLabel(l.text("任务分类"))
+            if model.isRefreshing { ProgressView().controlSize(.mini) }
+        }.overlay(alignment: .bottom) { MoraStyle.rule.frame(height: 1) }
+            .accessibilityElement(children: .contain).accessibilityLabel(l.text("任务分类"))
     }
 
     private var addForm: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(l.text("添加下载")).font(.system(size: 13, weight: .medium))
-                Spacer()
-                Button(l.text("导入种子…")) { model.importTorrent() }.buttonStyle(.plain).font(.system(size: 12))
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            Text(l.text("添加下载")).font(.system(size: 18, weight: .medium, design: .serif))
             TextField(l.text("粘贴 ed2k 或磁力链接，无需引号"), text: $model.link, axis: .vertical)
                 .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(2...3)
-                .padding(12).background(MoraStyle.ink, in: RoundedRectangle(cornerRadius: 10))
+                .padding(12).overlay(RoundedRectangle(cornerRadius: 7).stroke(MoraStyle.rule))
                 .focused($linkFocused).onSubmit { model.addLink() }.accessibilityLabel(l.text("下载链接"))
-            HStack {
-                Button { model.chooseDirectory() } label: {
-                    Label(model.output.isEmpty ? l.text("默认下载目录") : URL(fileURLWithPath: model.output).lastPathComponent, systemImage: "folder")
-                        .lineLimit(1).truncationMode(.middle)
-                }.buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(MoraStyle.muted)
+            HStack(spacing: 12) {
+                Image(systemName: "folder").foregroundStyle(MoraStyle.muted)
+                Text(model.output.isEmpty ? l.text("默认下载目录") : model.output)
+                    .lineLimit(1).truncationMode(.middle).font(.system(size: 12)).foregroundStyle(MoraStyle.muted)
                     .help(model.output.isEmpty ? l.text("首次下载使用 ~/Downloads/P2P，已有 ed2k 实例沿用原目录") : model.output)
+                Spacer(minLength: 0)
+                Button(l.text("选择下载目录…")) { model.chooseDirectory() }.buttonStyle(.plain).font(.system(size: 12))
+            }.padding(12).overlay(RoundedRectangle(cornerRadius: 7).stroke(MoraStyle.rule))
+            HStack {
+                Button(l.text("导入种子…")) { model.importTorrent() }.buttonStyle(.plain).font(.system(size: 12))
                 Spacer()
-                Button(l.text("添加任务")) { model.addLink() }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
+                Button(l.text("取消")) { model.showAdd = false }.buttonStyle(MoraButtonStyle())
+                Button(l.text("添加任务")) { model.addLink() }.buttonStyle(MoraButtonStyle(prominent: true))
                     .disabled(model.link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-        }.padding(16).background(MoraStyle.island.opacity(0.6), in: RoundedRectangle(cornerRadius: 20))
+        }.padding(20).background(MoraStyle.island.opacity(0.30), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(MoraStyle.rule))
             .disabled(model.isBusy)
     }
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "tray").font(.system(size: 27, weight: .ultraLight)).foregroundStyle(MoraStyle.coral)
-            Text(l.text(model.filter == .all ? "暂时没有可显示的任务" : "这里还没有任务"))
-                .font(.system(size: 15, weight: .medium))
-            Text(l.text("拖入链接或种子文件，也可以点击按钮添加。"))
+            Image(systemName: "tray").font(.system(size: 30, weight: .ultraLight)).foregroundStyle(MoraStyle.muted)
+            Text(l.text(model.filter == .all ? "为下一份期待，留一点空间。" : "这里还没有任务"))
+                .font(.system(size: 20, weight: .regular, design: .serif))
+            Text(l.text("在上方粘贴链接，或将种子文件拖到这里。"))
                 .font(.system(size: 12)).foregroundStyle(MoraStyle.muted)
             if !model.showAdd {
                 Button(l.text("添加第一个任务")) { model.showAdd = true; linkFocused = true }
-                    .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(MoraStyle.coral)
+                    .buttonStyle(MoraButtonStyle()).foregroundStyle(MoraStyle.coral)
             }
-        }.frame(maxWidth: .infinity).padding(.vertical, 24)
+        }.frame(maxWidth: .infinity).padding(.vertical, 38)
     }
 
     private func notice(_ text: String, symbol: String, color: Color, dismiss: @escaping () -> Void) -> some View {
@@ -185,7 +213,7 @@ struct PanelView: View {
     }
 
     private var footer: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 8) {
             Rectangle().fill(MoraStyle.muted.opacity(0.18)).frame(height: 1)
             HStack(spacing: 12) {
                 ForEach(model.snapshot.engines ?? []) { engine in
@@ -208,8 +236,7 @@ struct PanelView: View {
                             Text(engine.name + " · " + l.text(engine.title))
                         }
                     }.menuStyle(.borderlessButton).fixedSize().disabled(model.isBusy)
-                        .tint(MoraStyle.muted).padding(.horizontal, 10).padding(.vertical, 8)
-                        .background(MoraStyle.island.opacity(0.55), in: RoundedRectangle(cornerRadius: 11))
+                        .tint(MoraStyle.muted).padding(.trailing, 10).padding(.vertical, 8)
                 }
                 Spacer(minLength: 4)
                 Button { model.openFolder() } label: { Image(systemName: "folder") }
@@ -236,7 +263,7 @@ struct PanelView: View {
                 } label: { Image(systemName: "gearshape") }
                     .menuStyle(.borderlessButton).fixedSize().help(l.text("设置")).accessibilityLabel(l.text("设置"))
             }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(MoraStyle.muted)
-        }.padding(.horizontal, 28).padding(.bottom, 18)
+        }.padding(.horizontal, 36).padding(.bottom, 18)
     }
 }
 
@@ -254,16 +281,19 @@ struct DeleteTaskSheet: View {
                 .font(.system(size: 12)).foregroundStyle(MoraStyle.muted).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                Button(l.text("取消")) { model.pendingDeletion = nil }.keyboardShortcut(.cancelAction)
+                Button(l.text("取消")) { model.pendingDeletion = nil }.buttonStyle(MoraButtonStyle()).keyboardShortcut(.cancelAction)
                 Button(l.text(options.deleteFiles ? "删除任务和文件" : "仅删除任务"), role: .destructive) {
                     let choice = options
                     model.pendingDeletion = nil
                     model.remove(item, options: choice)
-                }.keyboardShortcut(.defaultAction).disabled(model.isBusy)
+                }.buttonStyle(MoraButtonStyle(prominent: true)).keyboardShortcut(.defaultAction).disabled(model.isBusy)
             }
         }.padding(28).frame(width: 410).foregroundStyle(MoraStyle.paper)
             .background(MoraStyle.ink).tint(MoraStyle.coral).preferredColorScheme(.dark)
-            .onAppear { options = RemovalOptions() }
+            .onAppear {
+                options = RemovalOptions()
+                if model.demo && CommandLine.arguments.contains("--preview-delete-files") { options.deleteFiles = true }
+            }
     }
 }
 
@@ -274,45 +304,49 @@ private struct TaskRow: View {
     let control: () -> Void
     let reveal: () -> Void
     let remove: () -> Void
-    private var highlighted: Bool { item.status == "active" || item.status == "waiting" || item.status == "verifying" }
-    private var foreground: Color { highlighted ? MoraStyle.ink : MoraStyle.paper }
-    private var secondary: Color { highlighted ? MoraStyle.ink.opacity(0.72) : MoraStyle.muted }
-
     var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: item.isFinished ? "checkmark" : "doc")
-                .font(.system(size: 22, weight: .light)).frame(width: 44, height: 44)
-                .background(highlighted ? MoraStyle.coral.opacity(0.65) : MoraStyle.muted.opacity(0.22), in: Circle())
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(item.name).font(.system(size: 15, weight: .semibold)).lineLimit(2).help(item.name)
-                HStack(spacing: 5) {
-                    Text(item.backend == "ed2k" ? "ED2K" : "BT").font(.system(size: 9, weight: .semibold))
-                    Text("· " + l.text(item.sizeTitle) + " · " + l.text(item.statusTitle))
-                    if !item.speed.isEmpty { Text("· " + item.speed).monospacedDigit() }
-                    else if !item.sources.isEmpty && !item.isFinished { Text("· " + l.format("来源 %@", item.sources)) }
-                }.font(.system(size: 11)).foregroundStyle(secondary).lineLimit(1)
-                HStack(spacing: 12) {
-                    GeometryReader { geometry in
-                        Capsule().fill(foreground.opacity(0.12))
+        GeometryReader { geometry in
+            HStack(spacing: 18) {
+                Image(systemName: "doc").font(.system(size: 24, weight: .ultraLight))
+                    .frame(width: 28).foregroundStyle(MoraStyle.paper).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.name).font(.system(size: 14, weight: .medium)).lineLimit(2).help(item.name)
+                    Text(metadata).font(.system(size: 11)).foregroundStyle(MoraStyle.muted).lineLimit(2).help(metadata)
+                }.frame(width: max(180, geometry.size.width * 0.36), alignment: .leading)
+                HStack(spacing: 14) {
+                    GeometryReader { bar in
+                        Capsule().fill(MoraStyle.paper.opacity(0.12))
                             .overlay(alignment: .leading) {
-                                Capsule().fill(MoraStyle.coral).frame(width: geometry.size.width * item.fraction)
+                                Capsule().fill(item.status == "paused" ? MoraStyle.coral.opacity(0.65) : MoraStyle.coral)
+                                    .frame(width: bar.size.width * item.fraction)
                             }
-                    }.frame(height: 6).accessibilityLabel(l.text("下载进度")).accessibilityValue(item.progressTitle)
-                    Text(item.progressTitle).font(.system(size: 11)).monospacedDigit().foregroundStyle(secondary).frame(width: 44, alignment: .trailing)
-                }
-            }
-            if item.isFinished && !item.path.isEmpty {
-                rowButton("folder", title: "在 Finder 中显示", action: reveal)
-            } else if item.canControl {
-                rowButton(item.status == "paused" ? "play.fill" : "pause.fill", title: item.status == "paused" ? "恢复" : "暂停", action: control).disabled(busy)
-            }
-            Menu { taskActions } label: { Image(systemName: "ellipsis").frame(width: 22, height: 32) }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().tint(foreground)
-                .help(l.text("任务操作")).accessibilityLabel(l.text("任务操作"))
-        }.padding(18).foregroundStyle(foreground)
-            .background(highlighted ? MoraStyle.paper : MoraStyle.island, in: RoundedRectangle(cornerRadius: 22))
-            .contextMenu { taskActions }
+                    }.frame(height: 5).accessibilityLabel(l.text("下载进度")).accessibilityValue(item.progressTitle)
+                    Text(item.progressTitle).font(.system(size: 11)).monospacedDigit().foregroundStyle(MoraStyle.muted).frame(width: 46, alignment: .trailing)
+                }.frame(maxWidth: .infinity)
+                HStack(spacing: 14) {
+                    if item.isFinished {
+                        rowButton("folder", title: "在 Finder 中显示", action: reveal)
+                    } else if item.canControl {
+                        rowButton(item.status == "paused" ? "play.fill" : "pause.fill", title: item.status == "paused" ? "恢复" : "暂停", action: control).disabled(busy)
+                    } else {
+                        Image(systemName: item.status == "error" ? "exclamationmark.triangle" : "clock")
+                            .foregroundStyle(MoraStyle.coral).frame(width: 32, height: 32)
+                    }
+                    Menu { taskActions } label: { Image(systemName: "ellipsis").frame(width: 22, height: 32) }
+                        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().tint(MoraStyle.paper)
+                        .help(l.text("任务操作")).accessibilityLabel(l.text("任务操作"))
+                }.frame(width: 78)
+            }.frame(maxHeight: .infinity)
+        }.frame(height: 90).foregroundStyle(MoraStyle.paper)
+            .contentShape(Rectangle()).contextMenu { taskActions }
+            .overlay(alignment: .bottom) { MoraStyle.rule.frame(height: 1) }
+    }
+
+    private var metadata: String {
+        var parts = [item.backend == "ed2k" ? "ED2K" : "BT", l.text(item.sizeTitle), l.text(item.statusTitle)]
+        if !item.speed.isEmpty { parts.append(item.speed) }
+        else if !item.sources.isEmpty && !item.isFinished { parts.append(l.format("来源 %@", item.sources)) }
+        return parts.joined(separator: " · ")
     }
 
     @ViewBuilder private var taskActions: some View {
@@ -326,8 +360,9 @@ private struct TaskRow: View {
     }
 
     private func rowButton(_ symbol: String, title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).font(.system(size: 13)).frame(width: 38, height: 38) }
-            .buttonStyle(.plain).background(highlighted ? MoraStyle.coral : MoraStyle.muted.opacity(0.3), in: Circle())
+        Button(action: action) { Image(systemName: symbol).font(.system(size: 12)).frame(width: 32, height: 32) }
+            .buttonStyle(.plain).foregroundStyle(item.status == "paused" ? MoraStyle.muted : MoraStyle.coral)
+            .overlay(Circle().stroke(item.status == "paused" ? MoraStyle.muted.opacity(0.7) : MoraStyle.coral, lineWidth: 1))
             .help(l.text(title)).accessibilityLabel(l.text(title))
     }
 }

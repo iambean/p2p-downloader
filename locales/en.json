@@ -155,5 +155,7 @@
   "设置": "Settings",
   "下载进度": "Download progress",
   "任务操作": "Task actions",
-  "只接受普通文件": "Only regular files are accepted"
+  "只接受普通文件": "Only regular files are accepted",
+  "粘贴链接，或拖入种子文件": "Paste a link, or drop a torrent",
+  "在上方粘贴链接，或将种子文件拖到这里。": "Paste a link above, or drop a torrent here."
 }

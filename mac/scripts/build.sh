@@ -21,6 +21,7 @@ cp Resources/Info.plist "$app/Contents/Info.plist"
 for module in engine.py cli.py gui_bridge.py file_actions.py install_amule.py; do
   cp "$project_root/../$module" "$app/Contents/Resources/p2p/"
 done
+ditto "$project_root/Resources/Artwork" "$app/Contents/Resources/Artwork"
 ditto "$project_root/../locales" "$app/Contents/Resources/locales"
 iconset="$project_root/.build/AppIcon.iconset"
 mkdir -p "$iconset"

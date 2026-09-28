@@ -50,6 +50,9 @@ final class AppModel: ObservableObject {
            let chosen = AppLanguage(rawValue: arguments[index + 1]) { language = chosen }
         if demo {
             snapshot = .demo
+            snapshot.tasks?[1].status = "paused"
+            if arguments.contains("--preview-empty") { snapshot.tasks = [] }
+            if arguments.contains("--preview-error") { error = "后台引擎控制连接异常，可查看详情。" }
             showAdd = arguments.contains("--preview-add")
         }
     }
