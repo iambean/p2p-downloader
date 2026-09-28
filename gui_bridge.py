@@ -224,7 +224,9 @@ def stop_engine(state, backend):
         if refused_local_port(port):
             return {'message': '引擎尚未运行。'}
         engine.ec(state, 'shutdown')
-    deadline = time.monotonic() + 12
+    # aMule can spend tens of seconds flushing its state on slower disks.
+    # Stay within the native bridge timeout and never force-kill the process.
+    deadline = time.monotonic() + 45
     while not refused_local_port(port):
         if time.monotonic() >= deadline:
             raise RuntimeError('引擎正在停止，请稍后刷新。')

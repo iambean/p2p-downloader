@@ -11,6 +11,13 @@ import gui_bridge as bridge
 
 
 class StopEngineTests(unittest.TestCase):
+    def test_orderly_shutdown_can_finish_after_twelve_seconds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            bridge.save_json(state / 'aria2-gui/rpc.json', {'port': 12345})
+            with patch.object(bridge, 'refused_local_port', side_effect=[False, False, False, True]), patch.object(bridge, 'rpc'), patch.object(bridge.time, 'sleep'), patch.object(bridge.time, 'monotonic', side_effect=[0, 10, 20]):
+                self.assertIn('任务和文件已保留', bridge.handle(state, {'action': 'stop', 'backend': 'bt'})['message'])
+
     def test_bt_persists_before_shutdown_and_waits_for_port_close(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp)
