@@ -57,7 +57,16 @@ def main():
         bridge.handle(root, {'action': 'pause', 'backend': 'ed2k', 'id': item['id']})
         assert bridge.snapshot(root)['tasks'][0]['status'] == 'paused'
         assert Path(bridge.snapshot(root)['tasks'][0]['path']).name.endswith('.part')
-        bridge.handle(root, {'action': 'stop', 'backend': 'ed2k'})
+        try:
+            bridge.handle(root, {'action': 'stop', 'backend': 'ed2k'})
+        except Exception:
+            pid = (root / 'amule/config/amuled.pid').read_text().strip()
+            print('Shutdown process:', subprocess.run(['ps', '-p', pid, '-o', 'pid=,stat=,comm='], capture_output=True, text=True).stdout, flush=True)
+            with socket.socket() as probe:
+                probe.settimeout(0.25)
+                print('Shutdown socket result:', probe.connect_ex(('127.0.0.1', bridge.cli.config(root).getint('ExternalConnect', 'ECPort'))), flush=True)
+            print('Shutdown log:', (root / 'amule/config/startup.log').read_text(errors='replace')[-8000:], flush=True)
+            raise
         assert not bridge.snapshot(root)['engines'][0]['running']
         engine.start_ed2k(root)
         assert bridge.snapshot(root)['tasks'][0]['id'] == item['id']
