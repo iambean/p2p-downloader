@@ -157,5 +157,14 @@
   "任务操作": "Task actions",
   "只接受普通文件": "Only regular files are accepted",
   "粘贴链接，或拖入种子文件": "Paste a link, or drop a torrent",
-  "在上方粘贴链接，或将种子文件拖到这里。": "Paste a link above, or drop a torrent here."
+  "在上方粘贴链接，或将种子文件拖到这里。": "Paste a link above, or drop a torrent here.",
+  "显示文件名": "Show file names",
+  "隐藏文件名": "Hide file names",
+  "文件名已隐藏": "File name hidden",
+  "文件名已显示": "File names shown",
+  "下载任务 %@": "Download %@",
+  "任务已处于暂停状态。": "The task is already paused.",
+  "任务已在运行。": "The task is already running.",
+  "任务状态已变化，正在刷新列表。": "The task has changed. Refreshing the list.",
+  "任务仍在切换状态，请稍后再试。": "The task is still changing state. Try again shortly."
 }

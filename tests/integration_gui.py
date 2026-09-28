@@ -143,6 +143,8 @@ save-session={work / 'session.txt'}
         item = next(t for t in bridge.snapshot(root)['tasks'] if t['backend'] == 'bt')
         bridge.handle(root, {'action': 'pause', 'backend': 'bt', 'id': item['id']})
         assert bridge.rpc(root, 'tellStatus', [item['id']])['status'] == 'paused'
+        # Replay the GUI's stale pause action against the same real aria2 GID.
+        assert '暂停' in bridge.handle(root, {'action': 'pause', 'backend': 'bt', 'id': item['id']})['message']
         bridge.handle(root, {'action': 'stop', 'backend': 'bt'})
         proc.wait(timeout=10)
         assert not bridge.snapshot(root)['engines'][1]['running']
@@ -155,8 +157,11 @@ save-session={work / 'session.txt'}
             except OSError:
                 time.sleep(0.2)
         assert bridge.rpc(root, 'tellStatus', [item['id']])['status'] == 'paused'
+        # Replay the GUI's stale pause action against the same real aria2 GID.
+        assert '暂停' in bridge.handle(root, {'action': 'pause', 'backend': 'bt', 'id': item['id']})['message']
         print('PASS: BT orderly stop and restart restores saved paused task.', flush=True)
         bridge.handle(root, {'action': 'resume', 'backend': 'bt', 'id': item['id']})
+        assert '运行' in bridge.handle(root, {'action': 'resume', 'backend': 'bt', 'id': item['id']})['message']
         bridge.handle(root, {'action': 'remove', 'backend': 'bt', 'id': item['id']})
         # The second deletion reaches aria2's real HTTP 400 / GID-not-found path.
         bridge.handle(root, {'action': 'remove', 'backend': 'bt', 'id': item['id']})

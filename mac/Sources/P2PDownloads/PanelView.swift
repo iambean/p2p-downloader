@@ -61,7 +61,7 @@ struct PanelView: View {
                     else {
                         LazyVStack(spacing: 0) {
                             ForEach(model.filteredTasks, id: \.key) { item in
-                                TaskRow(item: item, l: l, busy: model.isBusy, control: {
+                                TaskRow(item: item, displayName: model.visibleName(item), detail: model.visibleText(item.detail), l: l, busy: model.isBusy, control: {
                                     model.perform(["action": item.status == "paused" ? "resume" : "pause", "id": item.id, "backend": item.backend])
                                 }, reveal: { model.reveal(item) }, remove: { model.pendingDeletion = item })
                             }
@@ -157,6 +157,14 @@ struct PanelView: View {
                     .accessibilityAddTraits(model.filter == filter ? [.isSelected] : [])
             }
             Spacer(minLength: 0)
+            Button { model.hidesFileNames.toggle() } label: {
+                Image(systemName: model.hidesFileNames ? "eye.slash" : "eye")
+                    .font(.system(size: 14)).frame(width: 30, height: 30)
+                    .foregroundStyle(model.hidesFileNames ? MoraStyle.coral : MoraStyle.muted)
+            }.buttonStyle(.plain)
+                .help(l.text(model.hidesFileNames ? "显示文件名" : "隐藏文件名"))
+                .accessibilityLabel(l.text(model.hidesFileNames ? "显示文件名" : "隐藏文件名"))
+                .accessibilityValue(l.text(model.hidesFileNames ? "文件名已隐藏" : "文件名已显示"))
             if model.isRefreshing { ProgressView().controlSize(.mini) }
         }.overlay(alignment: .bottom) { MoraStyle.rule.frame(height: 1) }
             .accessibilityElement(children: .contain).accessibilityLabel(l.text("任务分类"))
@@ -171,9 +179,9 @@ struct PanelView: View {
                 .focused($linkFocused).onSubmit { model.addLink() }.accessibilityLabel(l.text("下载链接"))
             HStack(spacing: 12) {
                 Image(systemName: "folder").foregroundStyle(MoraStyle.muted)
-                Text(model.output.isEmpty ? l.text("默认下载目录") : model.output)
+                Text(model.output.isEmpty ? l.text("默认下载目录") : model.visibleText(model.output))
                     .lineLimit(1).truncationMode(.middle).font(.system(size: 12)).foregroundStyle(MoraStyle.muted)
-                    .help(model.output.isEmpty ? l.text("首次下载使用 ~/Downloads/P2P，已有 ed2k 实例沿用原目录") : model.output)
+                    .help(model.output.isEmpty ? l.text("首次下载使用 ~/Downloads/P2P，已有 ed2k 实例沿用原目录") : model.visibleText(model.output))
                 Spacer(minLength: 0)
                 Button(l.text("选择下载目录…")) { model.chooseDirectory() }.buttonStyle(.plain).font(.system(size: 12))
             }.padding(12).overlay(RoundedRectangle(cornerRadius: 7).stroke(MoraStyle.rule))
@@ -206,7 +214,7 @@ struct PanelView: View {
     private func notice(_ text: String, symbol: String, color: Color, dismiss: @escaping () -> Void) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: symbol).foregroundStyle(color)
-            Text(l.text(text)).font(.system(size: 12)).textSelection(.enabled).lineLimit(7)
+            Text(l.text(model.visibleText(text))).font(.system(size: 12)).textSelection(.enabled).lineLimit(7)
             Spacer(minLength: 0)
             Button(action: dismiss) { Image(systemName: "xmark") }.buttonStyle(.plain).help(l.text("关闭提示"))
         }.padding(12).background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
@@ -219,7 +227,7 @@ struct PanelView: View {
                 ForEach(model.snapshot.engines ?? []) { engine in
                     Menu {
                         Text(l.text(engine.explanation))
-                        Text(l.text(engine.detail))
+                        Text(l.text(model.visibleText(engine.detail)))
                         if let error = engine.error { Button(l.text("查看错误详情")) { model.error = error } }
                         if engine.available && !engine.running {
                             Button(l.format("启动 %@", engine.name)) { model.perform(["action": "start", "backend": engine.id]) }
@@ -248,6 +256,8 @@ struct PanelView: View {
                     Button(l.text("选择下载目录…")) { model.chooseDirectory() }
                     Button(l.text("恢复默认目录")) { model.output = ""; UserDefaults.standard.removeObject(forKey: "outputDirectory") }
                     Divider()
+                    Toggle(l.text("隐藏文件名"), isOn: $model.hidesFileNames)
+                    Divider()
                     Picker(l.text("语言"), selection: Binding(get: { model.language }, set: model.setLanguage)) {
                         Text(l.text("跟随系统")).tag(AppLanguage.system)
                         Text("简体中文").tag(AppLanguage.chinese)
@@ -275,7 +285,7 @@ struct DeleteTaskSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Label(l.text("删除这个任务？"), systemImage: "trash").font(.system(size: 19, weight: .medium))
-            Text(item.name).font(.system(size: 13)).foregroundStyle(MoraStyle.muted).lineLimit(3)
+            Text(model.visibleName(item)).font(.system(size: 13)).foregroundStyle(MoraStyle.muted).lineLimit(3)
             Toggle(l.text("同时删除已下载的文件"), isOn: $options.deleteFiles).toggleStyle(.checkbox).font(.system(size: 13))
             Text(l.text(item.deletionMessage(deleteFiles: options.deleteFiles)))
                 .font(.system(size: 12)).foregroundStyle(MoraStyle.muted).fixedSize(horizontal: false, vertical: true)
@@ -299,6 +309,8 @@ struct DeleteTaskSheet: View {
 
 private struct TaskRow: View {
     let item: DownloadTask
+    let displayName: String
+    let detail: String
     let l: L10n
     let busy: Bool
     let control: () -> Void
@@ -310,7 +322,7 @@ private struct TaskRow: View {
                 Image(systemName: "doc").font(.system(size: 24, weight: .ultraLight))
                     .frame(width: 28).foregroundStyle(MoraStyle.paper).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(item.name).font(.system(size: 14, weight: .medium)).lineLimit(2).help(item.name)
+                    Text(displayName).font(.system(size: 14, weight: .medium)).lineLimit(2).help(displayName)
                     Text(metadata).font(.system(size: 11)).foregroundStyle(MoraStyle.muted).lineLimit(2).help(metadata)
                 }.frame(width: max(180, geometry.size.width * 0.36), alignment: .leading)
                 HStack(spacing: 14) {
@@ -356,7 +368,7 @@ private struct TaskRow: View {
         Button(l.text("复制任务 ID")) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(item.id, forType: .string) }
         Divider()
         Button(role: .destructive, action: remove) { Label(l.text("删除任务…"), systemImage: "trash") }.disabled(busy)
-        if !item.detail.isEmpty { Text(l.text(item.detail)) }
+        if !detail.isEmpty { Text(l.text(detail)) }
     }
 
     private func rowButton(_ symbol: String, title: String, action: @escaping () -> Void) -> some View {

@@ -5,7 +5,12 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var snapshot = BridgeReply.empty
+    @Published var snapshot = BridgeReply.empty {
+        didSet { filenamePrivacy.remember(snapshot.tasks ?? []) }
+    }
+    @Published var hidesFileNames = UserDefaults.standard.bool(forKey: "hideFileNames") {
+        didSet { if !demo { UserDefaults.standard.set(hidesFileNames, forKey: "hideFileNames") } }
+    }
     @Published var isRefreshing = false
     @Published var isBusy = false
     @Published var busyMessage = "正在处理，首次启动引擎可能需要一分钟…"
@@ -35,6 +40,14 @@ final class AppModel: ObservableObject {
     let updater: AppUpdater
     private let client: BridgeClient
     private var timer: Timer?
+    private var filenamePrivacy = FilenamePrivacy()
+    private var snapshotGeneration = SnapshotGeneration()
+    func visibleName(_ task: DownloadTask) -> String {
+        filenamePrivacy.title(for: task, hidden: hidesFileNames, l: l)
+    }
+    func visibleText(_ text: String) -> String {
+        filenamePrivacy.redact(text, hidden: hidesFileNames, replacement: l.text("文件名已隐藏"))
+    }
     var tasks: [DownloadTask] { snapshot.tasks ?? [] }
     var filteredTasks: [DownloadTask] { tasks.filter(filter.matches) }
     var activeCount: Int { tasks.filter { TaskFilter.active.matches($0) }.count }
@@ -54,7 +67,12 @@ final class AppModel: ObservableObject {
             if arguments.contains("--preview-empty") { snapshot.tasks = [] }
             if arguments.contains("--preview-error") { error = "后台引擎控制连接异常，可查看详情。" }
             showAdd = arguments.contains("--preview-add")
+            if arguments.contains("--preview-private") { hidesFileNames = true }
+            if arguments.contains("--preview-private-error"), let task = snapshot.tasks?.first {
+                error = "无法读取种子文件：" + task.name
+            }
         }
+        filenamePrivacy.remember(snapshot.tasks ?? [])
     }
 
     func start() {
@@ -77,16 +95,38 @@ final class AppModel: ObservableObject {
     func refresh() {
         guard !demo, !isRefreshing, !isBusy else { return }
         isRefreshing = true
+        let generation = snapshotGeneration.current
         Task {
-            defer { isRefreshing = false; lastUpdated = Date() }
-            do { snapshot = try await client.request(["action": "snapshot"]) }
-            catch { self.error = error.localizedDescription }
+            defer { isRefreshing = false }
+            do {
+                let reply = try await client.request(["action": "snapshot"])
+                guard snapshotGeneration.accepts(generation), !isBusy else { return }
+                snapshot = reply
+                lastUpdated = Date()
+            } catch {
+                guard snapshotGeneration.accepts(generation), !isBusy else { return }
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
+    private func finishMutation() async {
+        // Keep controls disabled until the authoritative post-action snapshot is
+        // installed. A previously started periodic refresh cannot overwrite it.
+        defer { isBusy = false }
+        guard !demo else { return }
+        do {
+            snapshot = try await client.request(["action": "snapshot"])
+            lastUpdated = Date()
+        } catch {
+            if self.error == nil { self.error = error.localizedDescription }
         }
     }
 
     func perform(_ payload: [String: String], clearInput: Bool = false) {
         guard !isBusy else { return }
         if demo { feedback = "这是界面预览，未执行下载操作。"; return }
+        snapshotGeneration.invalidate()
         isBusy = true
         busyMessage = "正在处理，首次启动引擎可能需要一分钟…"
         error = nil
@@ -99,8 +139,7 @@ final class AppModel: ObservableObject {
                 retainedFilesPath = response.revealPath
                 if clearInput { link = ""; showAdd = false }
             } catch { self.error = error.localizedDescription }
-            isBusy = false
-            refresh()
+            await finishMutation()
         }
     }
 
@@ -127,6 +166,7 @@ final class AppModel: ObservableObject {
             error = "正在处理上一项操作，请完成后再拖入。"
             return false
         }
+        snapshotGeneration.invalidate()
         isBusy = true
         busyMessage = "正在读取拖放内容…"
         error = nil
@@ -153,8 +193,7 @@ final class AppModel: ObservableObject {
                 self.error = prefix + errors.prefix(5).map { l.text($0) }.joined(separator: "\n")
                     + (errors.count > 5 ? l.format("\n另有 %d 项未能添加。", errors.count - 5) : "")
             }
-            isBusy = false
-            refresh()
+            await finishMutation()
         }
         return true
     }

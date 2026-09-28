@@ -101,6 +101,12 @@ class RPCError(RuntimeError):
             r'GID\s*#?\s*' + re.escape(identifier) + r'\s+(?:is\s+)?not found\.?',
             str(self).strip(), re.I) is not None
 
+    def control_state_changed(self, identifier, method):
+        verb = 'paused' if method == 'pause' else 'unpaused'
+        return self.code == 1 and self.method == method and re.fullmatch(
+            r'GID\s*#?\s*' + re.escape(identifier) + r'\s+cannot be ' + verb + r' now\.?',
+            str(self).strip(), re.I) is not None
+
 
 def rpc(state, method, params=None):
     settings = read_json(state / 'aria2-gui/rpc.json', {})
@@ -135,6 +141,56 @@ def rpc(state, method, params=None):
     if 'result' not in result:
         raise RuntimeError('BT 控制接口未返回操作结果。')
     return result['result']
+
+
+def control_bt(state, identifier, action):
+    """Converge on the requested state, even when a displayed snapshot is stale."""
+    changed = '任务状态已变化，正在刷新列表。'
+    method = 'pause' if action == 'pause' else 'unpause'
+    desired = {'paused'} if action == 'pause' else {'active', 'waiting'}
+    controllable = {'active', 'waiting', 'paused'}
+    try:
+        current = rpc(state, 'tellStatus', [identifier])
+    except RPCError as exc:
+        if exc.missing_gid(identifier):
+            return changed
+        raise
+    if current.get('status') in desired:
+        rpc(state, 'saveSession')
+        return '任务已处于暂停状态。' if action == 'pause' else '任务已在运行。'
+    if current.get('status') not in controllable or current.get('followedBy'):
+        return changed
+    accepted = False
+    try:
+        rpc(state, method, [identifier])
+        accepted = True
+    except RPCError as exc:
+        if exc.missing_gid(identifier):
+            return changed
+        if not exc.control_state_changed(identifier, method):
+            raise
+        # A concurrent control request may already be applying this state.
+        # Only treat it as success after a status read confirms the result.
+    deadline = time.monotonic() + 3
+    while True:
+        try:
+            current = rpc(state, 'tellStatus', [identifier])
+        except RPCError as exc:
+            if not exc.missing_gid(identifier):
+                raise
+            current = {'status': 'removed'}
+        if current.get('status') in desired:
+            rpc(state, 'saveSession')
+            return '已暂停' if action == 'pause' else '已恢复'
+        if current.get('status') not in controllable or current.get('followedBy'):
+            if accepted:
+                rpc(state, 'saveSession')
+            return changed
+        if time.monotonic() >= deadline:
+            if accepted:
+                rpc(state, 'saveSession')
+            raise RuntimeError('任务仍在切换状态，请稍后再试。')
+        time.sleep(0.1)
 
 
 def start_bt(state):
@@ -534,8 +590,7 @@ def handle(state, request):
             elif request['backend'] == 'bt':
                 if not re.fullmatch(r'[a-fA-F0-9]{16}', identifier):
                     raise ValueError('无效的 BT 任务 ID。')
-                rpc(state, 'pause' if action == 'pause' else 'unpause', [identifier])
-                rpc(state, 'saveSession')
+                return {'message': control_bt(state, identifier, action)}
             else:
                 raise ValueError('未知下载引擎。')
             return {'message': '已暂停' if action == 'pause' else '已恢复'}
