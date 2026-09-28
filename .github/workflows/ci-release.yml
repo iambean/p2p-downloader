@@ -1,0 +1,135 @@
+name: CI and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  verify:
+    name: Tests and Apple Silicon build
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: mac/.build
+          key: macos15-arm64-spm-${{ hashFiles('mac/Package.resolved', 'mac/Package.swift') }}
+      - name: Check runner and toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          swift --version
+          python3 --version
+      - name: Python unit tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Swift unit and bridge tests
+        working-directory: mac
+        run: swift test --arch arm64
+      - name: Build app and verify local signatures
+        run: zsh mac/scripts/build.sh
+      - name: Install integration-test backends
+        env:
+          GH_TOKEN: ${{ github.token }}
+          P2P_AMULE_VERSION: '3.1.0'
+        run: |
+          command -v aria2c >/dev/null || brew install aria2
+          python3 install_amule.py
+      - name: Isolated engine and loopback download integration
+        run: python3 tests/integration_gui.py
+      - name: Package build artifacts
+        run: python3 scripts/release.py package
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: apple-silicon-${{ github.sha }}
+          path: |
+            mac/dist/P2P-Downloads-*.zip
+            mac/dist/P2P-Downloads-*.dmg
+            mac/dist/SHA256SUMS.txt
+          retention-days: 14
+          if-no-files-found: error
+
+  release:
+    name: Signed release and automatic-update feed
+    needs: verify
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: macos-15
+    timeout-minutes: 45
+    concurrency:
+      group: publish-stable-release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Gate immutable release version
+        id: version
+        run: python3 scripts/release.py prepare
+      - name: Require update signing key
+        if: steps.version.outputs.publish == 'true'
+        env:
+          SPARKLE_EDDSA_PRIVATE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
+        run: test -n "$SPARKLE_EDDSA_PRIVATE_KEY"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.version.outputs.publish == 'true'
+        with:
+          path: mac/.build
+          key: macos15-arm64-spm-${{ hashFiles('mac/Package.resolved', 'mac/Package.swift') }}
+      - name: Configure optional Apple signing and notarization
+        if: steps.version.outputs.publish == 'true'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: python3 scripts/apple_signing.py
+      - name: Build and package release
+        if: steps.version.outputs.publish == 'true'
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          zsh mac/scripts/build.sh
+          python3 scripts/release.py package
+      - name: Sign and verify archive and appcast
+        if: steps.version.outputs.publish == 'true'
+        env:
+          SPARKLE_EDDSA_PRIVATE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
+        run: python3 scripts/release.py sign
+      - name: Verify signed feed with the real Sparkle client
+        if: steps.version.outputs.publish == 'true'
+        run: python3 scripts/verify_feed.py
+      - name: Publish atomically and verify uploaded bytes
+        if: steps.version.outputs.publish == 'true'
+        run: python3 scripts/release.py publish
+      - name: Remove temporary Apple credentials
+        if: always()
+        run: python3 scripts/apple_signing.py cleanup

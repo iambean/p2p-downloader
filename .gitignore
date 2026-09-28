@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+!.env.example
+.temp/
+mac/.build/
+mac/dist/
+*.p12
+*.p8
+*.key
+release-secrets/
+downloads/
