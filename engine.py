@@ -137,14 +137,14 @@ Enabled=0
     emit(dict(status='configured_not_started', profile=str(profile), incoming=str(target), ec_port=port))
 
 
-def ec(state, command):
+def ec(state, command, timeout=30):
     profile = state / 'amule'
     if not (profile / 'config/remote.conf').is_file():
         raise RuntimeError('Run p2p init first.')
     # aMule 3.1 portable mode uses <cwd>/config/remote.conf. An absolute -f
     # is unsafe: this release concatenates the config directory and filename.
     result = subprocess.run([require('amulecmd'), '-l', 'en', '-c', command],
-                            cwd=profile, capture_output=True, text=True, timeout=30)
+                            cwd=profile, capture_output=True, text=True, timeout=timeout)
     output = result.stdout + result.stderr
     if result.returncode or re.search(r'connection failed|failed to connect|authentication failed|invalid link|cannot connect|not connected to amule|FATAL ERROR|password.*incorrect|wrong password', output, re.I):
         raise RuntimeError(output.strip() or f'amulecmd exit {result.returncode}')

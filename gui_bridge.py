@@ -394,9 +394,25 @@ def stop_engine(state, backend):
     # aMule can spend tens of seconds flushing its state on slower disks.
     # Stay within the native bridge timeout and never force-kill the process.
     deadline = time.monotonic() + 45
+    retry_at = deadline - 43
+    retries = 0
     while not refused_local_port(port):
-        if time.monotonic() >= deadline:
+        now = time.monotonic()
+        if now >= deadline:
             raise RuntimeError('引擎正在停止，请稍后刷新。')
+        if backend == 'ed2k' and retries < 4 and now >= retry_at:
+            # amulecmd sends shutdown without waiting for an acknowledgement.
+            # A successful client exit alone therefore does not prove delivery.
+            retries += 1
+            retry_at = now + 2
+            try:
+                engine.ec(state, 'shutdown', timeout=min(5, deadline - now))
+            except subprocess.TimeoutExpired:
+                pass  # Still bounded by the deadline and retry count.
+            except (OSError, RuntimeError):
+                if refused_local_port(port):
+                    break
+                raise  # Do not conceal authentication or other real failures.
         time.sleep(0.2)
     return {'message': '引擎已停止，任务和文件已保留。'}
 

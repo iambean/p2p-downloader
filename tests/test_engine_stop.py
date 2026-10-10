@@ -11,6 +11,37 @@ import gui_bridge as bridge
 
 
 class StopEngineTests(unittest.TestCase):
+    def test_ed2k_shutdown_retries_if_first_unacknowledged_request_is_lost(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            state = Path(tmp)
+            bridge.engine.setup_ed2k(state, str(state / 'incoming'), 14712)
+            commands = []
+            clock = [0.0]
+            def ec(*args, **kwargs):
+                commands.append(args[1])
+                return 'shutdown sent'
+            with patch.object(bridge.engine, 'ec', side_effect=ec), patch.object(bridge, 'refused_local_port', side_effect=lambda _: len(commands) >= 2), patch.object(bridge.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(bridge.time, 'sleep', side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay)):
+                self.assertIn('已停止', bridge.handle(state, {'action': 'stop', 'backend': 'ed2k'})['message'])
+            self.assertEqual(commands, ['shutdown', 'shutdown'])
+
+
+    def test_ed2k_shutdown_retry_is_bounded_and_preserves_auth_errors(self):
+        for auth_failure in (False, True):
+            with self.subTest(auth_failure=auth_failure), tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+                state = Path(tmp)
+                bridge.engine.setup_ed2k(state, str(state / 'incoming'), 14712)
+                clock = [0.0]
+                calls = []
+                def ec(*args, **kwargs):
+                    calls.append(args[1])
+                    if auth_failure and len(calls) > 1:
+                        raise RuntimeError('Authentication failed')
+                    return 'shutdown sent'
+                with patch.object(bridge.engine, 'ec', side_effect=ec), patch.object(bridge, 'refused_local_port', return_value=False), patch.object(bridge.time, 'monotonic', side_effect=lambda: clock[0]), patch.object(bridge.time, 'sleep', side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay)):
+                    with self.assertRaisesRegex(RuntimeError, 'Authentication failed' if auth_failure else '正在停止'):
+                        bridge.handle(state, {'action': 'stop', 'backend': 'ed2k'})
+                self.assertEqual(len(calls), 2 if auth_failure else 5)
+
     def test_orderly_shutdown_can_finish_after_twelve_seconds(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp)
