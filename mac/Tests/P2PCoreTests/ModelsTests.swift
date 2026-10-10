@@ -2,6 +2,23 @@ import XCTest
 @testable import P2PCore
 
 final class ModelsTests: XCTestCase {
+    func testHTTPProgressUses64BitByteCountsAndDistinctStatus() throws {
+        let json = #"{"id":"123456789abcdef0","name":"large.bin","backend":"bt","status":"active","progress":60,"size":5368709120,"completedBytes":3221225472,"transferProtocol":"http","speed":"2 MiB/s","sources":"","path":"/tmp/large.bin","detail":""}"#
+        var item = try JSONDecoder().decode(DownloadTask.self, from: Data(json.utf8))
+        XCTAssertTrue(item.isHTTP)
+        XCTAssertEqual(item.protocolTitle, "HTTP")
+        XCTAssertEqual(item.completedBytes, 3221225472)
+        XCTAssertEqual(item.statusTitle, "正在下载")
+        item.status = "error"
+        XCTAssertTrue(item.canControl)
+        XCTAssertEqual(item.controlAction, "retry")
+        XCTAssertEqual(item.controlTitle, "重试下载")
+        let unknown = json.replacingOccurrences(of: "5368709120", with: "0").replacingOccurrences(of: "3221225472", with: "0")
+        let pending = try JSONDecoder().decode(DownloadTask.self, from: Data(unknown.utf8))
+        XCTAssertEqual(pending.progressTitle, "—")
+        XCTAssertFalse(pending.transferSizeTitle.contains("大小待确认"))
+    }
+
     func testDemoUsesSameWireFormatAsBridge() throws {
         let reply = BridgeReply.demo
         XCTAssertEqual(reply.tasks?.count, 3)

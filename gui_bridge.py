@@ -22,6 +22,9 @@ import urllib.request
 import cli
 import engine
 import file_actions
+import http_download
+import hashlib
+import shutil
 
 
 def read_json(path, default):
@@ -193,6 +196,29 @@ def control_bt(state, identifier, action):
         time.sleep(0.1)
 
 
+def transfer_settings(state):
+    saved = read_json(state / 'gui/transfer-settings.json', {})
+    result = dict(max_concurrent=saved.get('max_concurrent', 2), http_connections=saved.get('http_connections', 4))
+    if result['max_concurrent'] not in (1, 2, 4, 8) or result['http_connections'] not in (1, 2, 4, 8, 16):
+        raise ValueError('下载并发设置无效。')
+    return result
+
+
+def configure_transfers(state, request):
+    settings = dict(max_concurrent=int(request['max_concurrent']), http_connections=int(request['http_connections']))
+    if settings['max_concurrent'] not in (1, 2, 4, 8) or settings['http_connections'] not in (1, 2, 4, 8, 16):
+        raise ValueError('下载并发设置无效。')
+    rpc_settings = read_json(state / 'aria2-gui/rpc.json', {})
+    if rpc_settings and not refused_local_port(rpc_settings['port']):
+        try:
+            rpc(state, 'changeGlobalOption', [{'max-concurrent-downloads': str(settings['max_concurrent'])}])
+        except OSError as exc:
+            if not connection_refused(exc):
+                raise
+    save_json(state / 'gui/transfer-settings.json', settings)
+    return {'message': '并发设置已保存；单文件连接数对新任务和重试任务生效。'}
+
+
 def start_bt(state):
     try:
         rpc(state, 'getVersion')
@@ -215,7 +241,7 @@ def start_bt(state):
         'enable-rpc': 'true', 'rpc-listen-all': 'false', 'rpc-listen-port': str(port),
         'rpc-secret': settings['secret'], 'rpc-allow-origin-all': 'false',
         'input-file': str(session), 'save-session': str(session), 'save-session-interval': '15',
-        'force-save': 'true', 'max-download-result': '1000', 'max-concurrent-downloads': '2',
+        'force-save': 'true', 'max-download-result': '1000', 'max-concurrent-downloads': str(transfer_settings(state)['max_concurrent']),
         'check-integrity': 'true', 'allow-overwrite': 'false', 'auto-file-renaming': 'false',
         'seed-time': '0', 'max-overall-upload-limit': '100K', 'file-allocation': 'none',
         'bt-save-metadata': 'true', 'log': str(work / 'aria2.log'), 'log-level': 'notice',
@@ -241,24 +267,109 @@ def start_bt(state):
     raise RuntimeError('BT 引擎启动超时，请查看启动日志。')
 
 
-def bt_task(value):
+def bt_task(value, http_info=None):
     files = value.get('files', [])
     path = files[0].get('path', '') if files else ''
-    name = value.get('bittorrent', {}).get('info', {}).get('name') or Path(path).name or '正在获取磁力元数据'
-    size = int(value.get('totalLength', 0))
+    is_http = bool(http_info) or not value.get('bittorrent') and not value.get('infoHash') and any(
+        u.get('uri', '').lower().startswith(('http://', 'https://')) for f in files for u in f.get('uris', []))
+    name = value.get('bittorrent', {}).get('info', {}).get('name') or Path(path).name or ('正在连接服务器' if is_http else '正在获取磁力元数据')
+    size = int(value.get('totalLength', 0)) or int((http_info or {}).get('size', 0))
     done = int(value.get('completedLength', 0))
     status = value.get('status', 'waiting')
-    # A completed metadata download spawns another GID; it is not the payload.
-    if value.get('followedBy') or value.get('status') == 'removed':
+    if value.get('followedBy') or status == 'removed':
         return None
     if status == 'complete' and (not files or any(not Path(f['path']).is_file() or Path(f['path']).stat().st_size != int(f['length']) for f in files if f.get('selected', 'true') == 'true')):
         status = 'unavailable'
     rate = int(value.get('downloadSpeed', 0))
-    if status == 'active' and not rate:
+    if status == 'active' and not rate and not is_http:
         status = 'waiting'
-    return task(value['gid'], name, 'bt', status, 100 * done / size if size else 0, size,
-                f'{rate / 1024:.0f} KiB/s' if rate else '', value.get('connections', '0'),
+    speed = f'{rate / 1048576:.1f} MiB/s' if rate >= 1048576 else f'{rate / 1024:.0f} KiB/s' if rate else ''
+    item = task(value['gid'], name, 'bt', status, 100 if status == 'complete' else 100 * done / size if size else 0, size,
+                speed, '' if is_http else value.get('connections', '0'),
                 path if Path(path).is_absolute() else value.get('dir', ''), value.get('errorMessage', ''))
+    if is_http:
+        item.update(transferProtocol='http', completedBytes=done)
+        if status == 'complete' and http_info:
+            if http_info.get('size') and size != http_info['size']:
+                item.update(status='error', detail='下载文件大小与服务器预告不一致，未标记为完成。')
+            elif http_info.get('content_type') not in ('text/html', 'application/xhtml+xml'):
+                try:
+                    with Path(path).open('rb') as payload:
+                        prefix = payload.read(512).lstrip().lower()
+                    if prefix.startswith((b'<!doctype html', b'<html', b'<head', b'<body')):
+                        item.update(status='error', detail='服务器返回了网页而非目标文件，请获取新的直链。')
+                except OSError:
+                    item.update(status='unavailable', detail='需要检查文件')
+        error_code = str(value.get('errorCode', ''))
+        if status == 'error':
+            friendly = {'3': '下载地址不存在或已失效（HTTP 404）。',
+                        '8': '服务器不支持从断点续传，已保留未完成文件。',
+                        '9': '下载目录空间不足。',
+                        '13': '目标文件已经存在，未覆盖。',
+                        '22': '下载服务器拒绝了请求，链接可能已过期；请尝试新的直链。'}
+            item['detail'] = friendly.get(error_code, item['detail'])
+    return item
+
+
+def add_http(state, item, destination):
+    directory = engine.output_dir(destination or str(Path.home() / 'Downloads/P2P/http'))
+    if directory in (Path.home(), Path('/')):
+        raise ValueError('请使用专用下载目录，不要选择用户主目录或系统根目录。')
+    registry_path = state / 'gui/http-downloads.json'
+    registry = read_json(registry_path, {})
+    key = hashlib.sha256((item['source'] + '\n' + str(directory)).encode()).hexdigest()
+    previous = registry.get(key, {})
+    info = http_download.probe(item['source'])
+    start_bt(state)
+    old = None
+    if previous.get('gid'):
+        try:
+            old = rpc(state, 'tellStatus', [previous['gid']])
+        except RPCError as exc:
+            if not exc.missing_gid(previous['gid']):
+                raise
+        exists_complete = old and old.get('status') == 'complete' and (bt_task(old, previous) or {}).get('status') == 'complete'
+        if old and (old.get('status') in ('active', 'waiting', 'paused') or exists_complete):
+            return {'message': '该链接已在下载列表中。'}
+    name = previous.get('name') or info['name']
+    target = directory / http_download.safe_name(name)
+    if previous and (target.is_symlink() or Path(str(target) + '.aria2').is_symlink()):
+        raise RuntimeError('下载文件路径包含符号链接，未开始下载。')
+    occupied = {f.get('path') for v in rpc(state, 'tellActive') + rpc(state, 'tellWaiting', [0, 1000]) if v.get('gid') != previous.get('gid') for f in v.get('files', [])}
+    if previous and str(target) in occupied:
+        raise RuntimeError('其他下载任务仍在使用这些文件，文件已保留。')
+    if previous and target.exists():
+        for validator in ('etag', 'modified', 'size'):
+            if previous.get(validator) and info.get(validator) and previous[validator] != info[validator]:
+                raise RuntimeError('服务器文件已变化，已保留旧文件；请使用新的下载目录。')
+        if not Path(str(target) + '.aria2').is_file():
+            raise RuntimeError('已有文件缺少续传记录，未覆盖；请使用新的下载目录。')
+    if not previous:
+        reserved = {r.get('path') for r in registry.values()}
+        reserved.update(occupied)
+        if target.exists() or target.is_symlink() or Path(str(target) + '.aria2').exists() or Path(str(target) + '.aria2').is_symlink() or str(target) in reserved:
+            original = Path(info['name'])
+            name = original.stem + '-' + key[:10] + original.suffix
+            target = directory / name
+            if target.exists() or target.is_symlink() or Path(str(target) + '.aria2').exists() or Path(str(target) + '.aria2').is_symlink() or str(target) in reserved:
+                raise RuntimeError('目标文件已经存在，未覆盖。')
+    allocated = target.stat().st_blocks * 512 if target.is_file() else 0
+    remaining = max(0, info['size'] - min(info['size'], allocated))
+    if remaining and shutil.disk_usage(directory).free < remaining + 256 * 1024 * 1024:
+        raise RuntimeError('下载目录空间不足。')
+    connections = 1 if info.get('accepts_ranges') is False else transfer_settings(state)['http_connections']
+    opts = dict(http_download.options(name, connections), dir=str(directory))
+    gid = rpc(state, 'addUri', [[item['source']], opts])
+    registry[key] = dict(info, name=name, source=item['source'], directory=str(directory), path=str(target), gid=gid)
+    save_json(registry_path, registry)
+    rpc(state, 'saveSession')
+    if old and old.get('status') in ('error', 'removed', 'complete'):
+        try:
+            rpc(state, 'removeDownloadResult', [previous['gid']])
+        except RPCError as exc:
+            if not exc.missing_gid(previous['gid']):
+                raise
+    return {'message': '已加入普通下载队列'}
 
 
 def stop_engine(state, backend):
@@ -302,7 +413,7 @@ def connection_refused(error):
 
 
 def snapshot(state):
-    result = dict(tasks=[], engines=[], downloadSpeed='0 B/s', folders={})
+    result = dict(tasks=[], engines=[], downloadSpeed='0 B/s', folders={}, transferSettings=transfer_settings(state))
     metadata = read_json(state / 'gui/tasks.json', {})
     configured = (state / 'amule/config/amule.conf').exists()
     amule = dict(id='ed2k', name='eD2k', available=bool(engine.binary('amulecmd')), running=False,
@@ -334,12 +445,13 @@ def snapshot(state):
                 amule['detail'] = '控制连接不可用'
                 amule['error'] = str(exc)
     result['engines'].append(amule)
-    bt = dict(id='bt', name='BitTorrent', available=bool(engine.binary('aria2c')), running=False, detail='未启动')
+    bt = dict(id='bt', name='HTTP / BitTorrent', available=bool(engine.binary('aria2c')), running=False, detail='未启动')
     if (state / 'aria2-gui/rpc.json').exists():
         try:
             values = rpc(state, 'tellActive') + rpc(state, 'tellWaiting', [0, 1000]) + rpc(state, 'tellStopped', [0, 1000])
             bt.update(running=True, detail='就绪')
-            result['tasks'] += [parsed for value in values if (parsed := bt_task(value)) is not None]
+            http_records = {r.get('gid'): r for r in read_json(state / 'gui/http-downloads.json', {}).values()}
+            result['tasks'] += [parsed for value in values if (parsed := bt_task(value, http_records.get(value['gid']))) is not None]
         except (OSError, RuntimeError) as exc:
             bt['running'] = False
             if connection_refused(exc):
@@ -537,13 +649,25 @@ def handle(state, request):
     if action == 'snapshot':
         return snapshot(state)
     with cli.mutation_lock(state):
+        if action == 'configure':
+            return configure_transfers(state, request)
         if action == 'stop':
             return stop_engine(state, request['backend'])
+        if action == 'retry':
+            identifier = request['id']
+            if request.get('backend') != 'bt' or not re.fullmatch(r'[a-fA-F0-9]{16}', identifier):
+                raise ValueError('无效的 BT 任务 ID。')
+            record = next((r for r in read_json(state / 'gui/http-downloads.json', {}).values() if r.get('gid') == identifier), None)
+            if not record:
+                raise RuntimeError('未找到此任务，请刷新列表。')
+            return add_http(state, engine.classify(record['source']), record['directory'])
         if action == 'remove':
             return remove_task(state, request)
         if action == 'add':
             item = engine.classify(request['source'])
             destination = request.get('output') or None
+            if item['protocol'] == 'http':
+                return add_http(state, item, destination)
             if item['backend'] == 'amule':
                 engine.require('amuled')
                 cli.initialize(state, destination)

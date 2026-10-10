@@ -56,6 +56,8 @@ jobs:
           python3 install_amule.py
       - name: Isolated engine and loopback download integration
         run: python3 tests/integration_gui.py
+      - name: HTTP large-file resume and integrity integration
+        run: python3 tests/integration_http.py
       - name: Package build artifacts
         run: python3 scripts/release.py package
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

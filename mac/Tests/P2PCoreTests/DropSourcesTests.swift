@@ -4,6 +4,20 @@ import UniformTypeIdentifiers
 @testable import P2PCore
 
 final class DropSourcesTests: XCTestCase {
+    func testHTTPLinksPreserveSignaturesAndRejectCredentials() throws {
+        let url = "https://example.org/download?token=a%2Bb&n=1#file"
+        XCTAssertEqual(try DropSources.normalize(url), url)
+        for invalid in ["http://", "http://u:p@example.org/file", "https://example.org:99999/file"] {
+            XCTAssertThrowsError(try DropSources.normalize(invalid))
+        }
+    }
+    func testHTTPBatchFromTextIsNotCoercedIntoOneURL() async {
+        let urls = ["https://example.org/a?x=1", "http://example.org/b"]
+        let batch = await DropSources.read([NSItemProvider(object: urls.joined(separator: "\r\n") as NSString)])
+        XCTAssertEqual(batch.sources, urls)
+        XCTAssertTrue(batch.errors.isEmpty)
+    }
+
     let ed2k = "ed2k://|file|open%20fixture.txt|25|0123456789abcdef0123456789abcdef|/"
     let magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Open%20fixture"
 
@@ -27,7 +41,7 @@ final class DropSourcesTests: XCTestCase {
     }
 
     func testMalformedItemsDoNotDiscardValidItems() async {
-        let batch = await DropSources.read([NSItemProvider(object: ("https://example.org/\n" + ed2k) as NSString)])
+        let batch = await DropSources.read([NSItemProvider(object: ("ftp://example.org/\n" + ed2k) as NSString)])
         XCTAssertEqual(batch.sources, [ed2k])
         XCTAssertEqual(batch.errors.count, 1)
     }

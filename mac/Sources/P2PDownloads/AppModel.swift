@@ -64,6 +64,11 @@ final class AppModel: ObservableObject {
         if demo {
             snapshot = .demo
             snapshot.tasks?[1].status = "paused"
+            if arguments.contains("--preview-http"), var item = snapshot.tasks?.first {
+                item.transferProtocol = "http"
+                item.completedBytes = Int64(Double(item.size) * item.fraction)
+                snapshot.tasks?[0] = item
+            }
             if arguments.contains("--preview-empty") { snapshot.tasks = [] }
             if arguments.contains("--preview-error") { error = "后台引擎控制连接异常，可查看详情。" }
             showAdd = arguments.contains("--preview-add")
@@ -141,6 +146,12 @@ final class AppModel: ObservableObject {
             } catch { self.error = error.localizedDescription }
             await finishMutation()
         }
+    }
+
+    func configureTransfers(maxConcurrent: Int? = nil, httpConnections: Int? = nil) {
+        perform(["action": "configure",
+                 "max_concurrent": String(maxConcurrent ?? snapshot.transferSettings?["max_concurrent"] ?? 2),
+                 "http_connections": String(httpConnections ?? snapshot.transferSettings?["http_connections"] ?? 4)])
     }
 
     func addLink() {

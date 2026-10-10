@@ -24,6 +24,11 @@ public enum DropSources {
             for type in preferred where provider.hasItemConformingToTypeIdentifier(type) {
                 do {
                     let text = try await loadText(provider, type: type)
+                    // Cocoa may coerce an entire multi-line paste into one URL.
+                    // Prefer its original text representation in that case.
+                    if type == UTType.url.identifier,
+                       text.range(of: #"(?i)%0[ad](?:%0[ad])?(?:https?://|ed2k://|magnet:\?)"#, options: .regularExpression) != nil,
+                       provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) { continue }
                     var parsed = DropBatch()
                     for line in text.components(separatedBy: .newlines) where !line.trimmingCharacters(in: .whitespaces).isEmpty {
                         do { parsed.sources.append(try normalize(line)) }
@@ -89,8 +94,17 @@ public enum DropSources {
             text = "ed2k://|file|\(groups[0])|\(groups[1])|\(groups[2])|\(tail)"
         }
         let lower = text.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+            guard let url = URLComponents(string: text), let host = url.host, !host.isEmpty,
+                  url.user == nil, url.password == nil,
+                  !text.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }),
+                  url.port.map({ (1...65535).contains($0) }) ?? true else {
+                throw BridgeFailure.message("无效的 HTTP/HTTPS 下载地址。")
+            }
+            return text
+        }
         guard lower.hasPrefix("ed2k://|file|") || lower.hasPrefix("magnet:?") else {
-            throw BridgeFailure.message("仅支持 ed2k、磁力链接或本地 .torrent 文件。")
+            throw BridgeFailure.message("支持 HTTP/HTTPS、ed2k、磁力链接或本地 .torrent 文件。")
         }
         return text
     }

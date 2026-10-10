@@ -62,7 +62,7 @@ struct PanelView: View {
                         LazyVStack(spacing: 0) {
                             ForEach(model.filteredTasks, id: \.key) { item in
                                 TaskRow(item: item, displayName: model.visibleName(item), detail: model.visibleText(item.detail), l: l, busy: model.isBusy, control: {
-                                    model.perform(["action": item.status == "paused" ? "resume" : "pause", "id": item.id, "backend": item.backend])
+                                    model.perform(["action": item.controlAction, "id": item.id, "backend": item.backend])
                                 }, reveal: { model.reveal(item) }, remove: { model.pendingDeletion = item })
                             }
                         }
@@ -92,7 +92,7 @@ struct PanelView: View {
                         Image(systemName: "arrow.down").font(.system(size: 24, weight: .light)).foregroundStyle(MoraStyle.coral)
                         Text(l.text(model.isBusy ? "请等待当前操作完成" : "松开以添加下载"))
                             .font(.system(size: 17, weight: .medium))
-                        Text(l.text("ed2k · 磁力链接 · .torrent 文件")).font(.system(size: 13))
+                        Text(l.text("HTTP/HTTPS · ed2k · 磁力链接 · .torrent 文件")).font(.system(size: 13))
                         Text(l.text("支持一次拖入多个项目")).font(.system(size: 12)).foregroundStyle(MoraStyle.muted)
                     }
                 }.frame(height: 150).padding(.horizontal, 22).padding(.top, 202).allowsHitTesting(false)
@@ -121,7 +121,7 @@ struct PanelView: View {
         HStack(spacing: 20) {
             HStack(spacing: 12) {
                 Image(systemName: "link").font(.system(size: 17, weight: .light)).foregroundStyle(MoraStyle.muted)
-                TextField(l.text("粘贴链接，或拖入种子文件"), text: $model.link)
+                TextField(l.text("粘贴下载链接，或拖入种子文件"), text: $model.link)
                     .textFieldStyle(.plain).font(.system(size: 13)).focused($linkFocused)
                     .accessibilityLabel(l.text("下载链接")).onSubmit { model.addLink() }
                 Button(l.text("添加")) {
@@ -173,7 +173,7 @@ struct PanelView: View {
     private var addForm: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(l.text("添加下载")).font(.system(size: 18, weight: .medium, design: .serif))
-            TextField(l.text("粘贴 ed2k 或磁力链接，无需引号"), text: $model.link, axis: .vertical)
+            TextField(l.text("粘贴 HTTP/HTTPS、ed2k 或磁力链接"), text: $model.link, axis: .vertical)
                 .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(2...3)
                 .padding(12).overlay(RoundedRectangle(cornerRadius: 7).stroke(MoraStyle.rule))
                 .focused($linkFocused).onSubmit { model.addLink() }.accessibilityLabel(l.text("下载链接"))
@@ -255,6 +255,17 @@ struct PanelView: View {
                 Menu {
                     Button(l.text("选择下载目录…")) { model.chooseDirectory() }
                     Button(l.text("恢复默认目录")) { model.output = ""; UserDefaults.standard.removeObject(forKey: "outputDirectory") }
+                    Divider()
+                    Menu(l.text("下载并发")) {
+                        Picker(l.text("同时下载文件数"), selection: Binding(get: { model.snapshot.transferSettings?["max_concurrent"] ?? 2 }, set: { model.configureTransfers(maxConcurrent: $0) })) {
+                            ForEach([1, 2, 4, 8], id: \.self) { count in Text(l.format("%d 个文件", count)).tag(count) }
+                        }
+                        Picker(l.text("单文件 HTTP 连接数"), selection: Binding(get: { model.snapshot.transferSettings?["http_connections"] ?? 4 }, set: { model.configureTransfers(httpConnections: $0) })) {
+                            ForEach([1, 2, 4, 8, 16], id: \.self) { count in Text(l.format("%d 个连接", count)).tag(count) }
+                        }
+                        Text(l.text("多文件并发适用于 HTTP 和 BT；单文件分段需要服务器支持 Range。"))
+                        Text(l.text("连接数对新的 HTTP 任务和重试任务生效。"))
+                    }.disabled(model.isBusy)
                     Divider()
                     Toggle(l.text("隐藏文件名"), isOn: $model.hidesFileNames)
                     Divider()
@@ -339,7 +350,7 @@ private struct TaskRow: View {
                     if item.isFinished {
                         rowButton("folder", title: "在 Finder 中显示", action: reveal)
                     } else if item.canControl {
-                        rowButton(item.status == "paused" ? "play.fill" : "pause.fill", title: item.status == "paused" ? "恢复" : "暂停", action: control).disabled(busy)
+                        rowButton(item.controlAction == "retry" ? "arrow.clockwise" : item.controlAction == "resume" ? "play.fill" : "pause.fill", title: item.controlTitle, action: control).disabled(busy)
                     } else {
                         Image(systemName: item.status == "error" ? "exclamationmark.triangle" : "clock")
                             .foregroundStyle(MoraStyle.coral).frame(width: 32, height: 32)
@@ -355,9 +366,9 @@ private struct TaskRow: View {
     }
 
     private var metadata: String {
-        var parts = [item.backend == "ed2k" ? "ED2K" : "BT", l.text(item.sizeTitle), l.text(item.statusTitle)]
+        var parts = [item.protocolTitle, l.text(item.transferSizeTitle), l.text(item.statusTitle)]
         if !item.speed.isEmpty { parts.append(item.speed) }
-        else if !item.sources.isEmpty && !item.isFinished { parts.append(l.format("来源 %@", item.sources)) }
+        else if !item.sources.isEmpty && !item.isFinished && !item.isHTTP { parts.append(l.format("来源 %@", item.sources)) }
         return parts.joined(separator: " · ")
     }
 

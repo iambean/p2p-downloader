@@ -28,7 +28,7 @@ class P2PTests(unittest.TestCase):
                        LINK.replace('%E6%B5%8B%E8%AF%95%20file.bin', '%0Aevil'),
                        LINK + '\nshutdown', LINK[:-1] + 'garbage/', 'ed2k://|server|1.2.3.4|4661|/',
                        'magnet:?xt=urn:btmh:1220' + 'a' * 64,
-                       'https://example.com/file.torrent'):
+                       'ftp://example.com/file.torrent'):
             with self.subTest(source=source), self.assertRaises(ValueError):
                 p2p.classify(source)
 

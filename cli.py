@@ -18,7 +18,7 @@ import urllib.request
 
 import engine
 
-VERSION = '0.4.1'
+VERSION = '0.5.0'
 SERVER_LIST = 'https://upd.emule-security.org/server.met'
 
 
@@ -131,7 +131,7 @@ def download(state, args):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog='p2p', description='P2P 文件下载工具：ed2k、磁力链接、torrent。')
+    parser = argparse.ArgumentParser(prog='p2p', description='文件下载工具：HTTP/HTTPS、ed2k、磁力链接、torrent。')
     parser.add_argument('--version', action='version', version='p2p ' + VERSION)
     parser.add_argument('--state-dir', type=Path, default=engine.DEFAULT_STATE, help='独立状态目录（默认 ~/.local/share/p2p-downloader）')
     parser.add_argument('--json', action='store_true', help='结构化 JSON 输出（全局参数，放在子命令前）')
@@ -159,7 +159,7 @@ def build_parser():
         action.add_argument('hash', help='32 位文件哈希（由 p2p list 获得）')
     logs = sub.add_parser('logs', help='查看 ed2k 日志末尾；BT 日志见任务目录')
     logs.add_argument('--tail', type=int, default=40)
-    dl = sub.add_parser('download', aliases=['dl'], help='自动选择后端；ed2k 后台排队，BT 前台显示进度')
+    dl = sub.add_parser('download', aliases=['dl'], help='自动选择后端；HTTP/HTTPS 和 ed2k 后台排队，BT 前台显示进度')
     dl.add_argument('source', help='完整链接或本地 .torrent 路径，必须加 shell 引号')
     dl.add_argument('-o', '--output', help='下载目录；已有 ed2k 实例须与 IncomingDir 一致')
     dl.add_argument('--dry-run', action='store_true', help='只展示计划，不创建目录、不启动网络')

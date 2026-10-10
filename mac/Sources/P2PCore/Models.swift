@@ -11,9 +11,20 @@ public struct DownloadTask: Codable, Identifiable, Equatable {
     public let sources: String
     public let path: String
     public let detail: String
+    public var transferProtocol: String? = nil
+    public var completedBytes: Int64? = nil
+    public var isHTTP: Bool { transferProtocol == "http" }
+    public var protocolTitle: String { isHTTP ? "HTTP" : backend == "ed2k" ? "ED2K" : "BT" }
+    public var controlAction: String { status == "error" && isHTTP ? "retry" : status == "paused" ? "resume" : "pause" }
+    public var controlTitle: String { controlAction == "retry" ? "重试下载" : controlAction == "resume" ? "恢复" : "暂停" }
+    public var transferSizeTitle: String {
+        guard isHTTP else { return sizeTitle }
+        let done = ByteCountFormatter.string(fromByteCount: completedBytes ?? 0, countStyle: .file)
+        return done + " / " + (size > 0 || isFinished ? sizeTitle : "—")
+    }
     public var key: String { backend + ":" + id }
     public var isFinished: Bool { status == "complete" }
-    public var canControl: Bool { ["active", "waiting", "paused"].contains(status) }
+    public var canControl: Bool { ["active", "waiting", "paused"].contains(status) || (isHTTP && status == "error") }
     public func deletionMessage(deleteFiles: Bool) -> String {
         if deleteFiles {
             return "该任务对应的已下载文件将移到废纸篓，包括未完成文件和续传数据。"
@@ -25,20 +36,20 @@ public struct DownloadTask: Codable, Identifiable, Equatable {
     }
     public var statusTitle: String {
         switch status {
-        case "active": return "正在下载"
+        case "active": return isHTTP && (completedBytes ?? 0) == 0 && speed.isEmpty ? "正在连接服务器" : "正在下载"
         case "paused": return "已暂停"
         case "complete": return "已完成"
         case "verifying": return "正在校验"
         case "error": return "下载出错"
         case "unavailable": return "需要检查文件"
         case "removed": return "已移除"
-        default: return size == 0 && backend == "bt" ? "等待磁力元数据" : "等待来源"
+        default: return isHTTP ? "等待下载" : size == 0 && backend == "bt" ? "等待磁力元数据" : "等待来源"
         }
     }
     public var sizeTitle: String {
-        size > 0 ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : "大小待确认"
+        size > 0 || isFinished ? ByteCountFormatter.string(fromByteCount: size, countStyle: .file) : "大小待确认"
     }
-    public var progressTitle: String { String(format: "%.1f%%", min(100, max(0, progress))) }
+    public var progressTitle: String { isHTTP && size == 0 && !isFinished ? "—" : String(format: "%.1f%%", min(100, max(0, progress))) }
     public var fraction: Double { min(1, max(0, progress / 100)) }
 }
 
@@ -51,6 +62,7 @@ public struct EngineState: Codable, Identifiable {
     public let error: String?
     public var explanation: String {
         if error != nil { return "后台引擎控制连接异常，可查看详情。" }
+        if id == "bt" && running { return "引擎已运行，可下载 HTTP/HTTPS 文件和 BitTorrent；停止会中断两类传输。" }
         return running ? "引擎已运行，可接收任务；实际下载仍取决于来源。" : "后台引擎尚未运行，添加任务时会自动启动。"
     }
     public var title: String {
@@ -67,6 +79,7 @@ public struct BridgeReply: Codable {
     public var tasks: [DownloadTask]?
     public var engines: [EngineState]?
     public var folders: [String: String]?
+    public var transferSettings: [String: Int]?
     public var downloadSpeed: String?
     public let message: String?
     public let error: String?
@@ -88,7 +101,7 @@ private let demoJSON = #"""
 {
  "engines": [
    {"id":"ed2k","name":"eD2k","available":true,"running":true,"detail":"Connected with HighID"},
-   {"id":"bt","name":"BitTorrent","available":true,"running":true,"detail":"就绪"}
+   {"id":"bt","name":"HTTP / BitTorrent","available":true,"running":true,"detail":"就绪"}
  ],
  "downloadSpeed":"2.4 MiB/s",
  "tasks":[

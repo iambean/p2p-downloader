@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 import time
+import http_download
 from urllib.parse import parse_qs, unquote, urlsplit
 
 DEFAULT_STATE = Path.home() / '.local/share/p2p-downloader'
@@ -47,8 +48,13 @@ def classify(source):
         digest = hashes[0].lower() if len(hashes[0]) == 40 else base64.b32decode(hashes[0].upper()).hex()
         return dict(protocol='magnet', backend='aria2', id=digest, source=source,
                     name=query.get('dn', [''])[0])
+    if source.lower().startswith(('http://', 'https://')):
+        source = http_download.normalize_url(source)
+        return dict(protocol='http', backend='aria2', source=source,
+                    name=unquote(urlsplit(source).path.rsplit('/', 1)[-1]),
+                    id=hashlib.sha256(source.encode()).hexdigest())
     if '://' in source:
-        raise ValueError('Unsupported URL. For an HTTPS torrent URL, first save the .torrent locally; never send ed2k to aria2.')
+        raise ValueError('Unsupported URL. Use HTTP/HTTPS, ed2k, magnet or a local torrent.')
     path = Path(source).expanduser().resolve()
     if path.suffix.lower() != '.torrent' or not path.is_file():
         raise ValueError('Expected an ed2k file link, btih magnet or existing local .torrent file.')
@@ -213,6 +219,11 @@ def download(state, item, destination):
                   id=item['id'], response=result, queue=after))
         if item['id'] not in after.lower():
             raise RuntimeError('Submission was not confirmed. Inspect p2p list / p2p shared before retrying.')
+        return
+    if item['protocol'] == 'http':
+        # HTTP CLI requests share the GUI queue and its filename ownership checks.
+        import gui_bridge
+        emit(gui_bridge.handle(state, {'action': 'add', 'source': item['source'], 'output': destination or ''}))
         return
     target = output_dir(destination or str(Path.home() / 'Downloads/P2P/bittorrent'))
     work = state / 'aria2' / item['id']

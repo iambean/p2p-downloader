@@ -4,7 +4,7 @@
 
 Apple Silicon 原生图形客户端与独立命令行工具：[Mac 客户端说明](mac/README.md)。提供主窗口、Dock 图标和菜单栏入口，复用同一 ed2k 队列。
 
-独立运行的 `p2p` 命令，不依赖 Codex 或 skill。支持 macOS/Linux、Python 3.9+；当前在 macOS Apple Silicon 验证。ed2k 使用 aMule 3.1+，BitTorrent v1 磁力链接和种子使用 aria2。v2-only、IPFS、迅雷专有链接暂不支持。
+独立运行的 `p2p` 命令，不依赖 Codex 或 skill。支持 HTTP/HTTPS 文件直链、ed2k、magnet 与本地 torrent；适用于 macOS/Linux、Python 3.9+；当前在 macOS Apple Silicon 验证。ed2k 使用 aMule 3.1+，BitTorrent v1 磁力链接和种子使用 aria2。v2-only、IPFS、迅雷专有链接暂不支持。
 
 ## 安装
 
@@ -99,3 +99,5 @@ python3 -m unittest discover -s tests -v
 测试不访问公共 P2P 网络。另已用断开 eD2k/Kad 的临时 aMule 实例验证控制流程。公共网络真实下载速度和资源可用性取决于对应 peers，不能由这些测试保证。
 
 协议参考：[aMule 官方文档](https://amule-org.github.io/docs)、[aria2 官方手册](https://aria2.github.io/manual/en/html/aria2c.html)。
+
+普通 HTTP/HTTPS 下载示例：`p2p dl "https://example.org/large.zip"`。与 Mora 图形客户端共用后台 aria2 队列，可在应用中查看、暂停和恢复。大文件续传需要服务器支持 Range，并保留 `.aria2` 控制文件。
