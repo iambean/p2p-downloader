@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import signal
 import socket
 import subprocess
 import sys
@@ -372,7 +373,51 @@ def add_http(state, item, destination):
     return {'message': '已加入普通下载队列'}
 
 
+def request_managed_ed2k_shutdown(state, port):
+    """Use aMule's graceful signal path only for this profile's verified daemon.
+
+    Some macOS builds do not exit reliably on EC shutdown. SIGTERM is handled by
+    aMule's normal shutdown routine. Never resend it: aMule resets its signal
+    handler after the first request, so a second signal could terminate abruptly.
+    """
+    pidfile = state / 'amule/config/amuled.pid'
+    try:
+        pid = int(pidfile.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    if pid <= 1:
+        return False
+    result = subprocess.run(['ps', '-ww', '-p', str(pid), '-o', 'uid=', '-o', 'lstart=', '-o', 'command='],
+                            capture_output=True, text=True, timeout=3)
+    fields = result.stdout.strip().split(None, 6)
+    binary = engine.binary('amuled')
+    expected = f'{binary} --config-dir {state / "amule/config"} --log-stdout'
+    if result.returncode or len(fields) != 7 or fields[0] != str(os.getuid()) or fields[6] != expected:
+        return False
+    lsof = shutil.which('lsof')
+    if not lsof:
+        return False
+    listener = subprocess.run([lsof, '-nP', '-a', '-p', str(pid), '-iTCP:' + str(port), '-sTCP:LISTEN', '-Fp'],
+                              capture_output=True, text=True, timeout=3)
+    if listener.returncode or f'p{pid}' not in listener.stdout.splitlines():
+        return False
+    engine.ec(state, 'status', timeout=5)  # Do not bypass a failed EC authentication.
+    marker = state / 'amule/config/shutdown-request.json'
+    identity = dict(pid=pid, identity=result.stdout.strip())
+    if read_json(marker, {}) != identity:
+        save_json(marker, identity)
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            marker.unlink(missing_ok=True)
+            raise
+    return True
+
+
 def stop_engine(state, backend):
+    managed = False
     if backend not in ('bt', 'ed2k'):
         raise ValueError('未知下载引擎。')
     if backend == 'bt':
@@ -390,7 +435,9 @@ def stop_engine(state, backend):
         port = cli.config(state).getint('ExternalConnect', 'ECPort')
         if refused_local_port(port):
             return {'message': '引擎尚未运行。'}
-        engine.ec(state, 'shutdown')
+        managed = request_managed_ed2k_shutdown(state, port)
+        if not managed:
+            engine.ec(state, 'shutdown')
     # aMule can spend tens of seconds flushing its state on slower disks.
     # Stay within the native bridge timeout and never force-kill the process.
     deadline = time.monotonic() + 45
@@ -400,7 +447,7 @@ def stop_engine(state, backend):
         now = time.monotonic()
         if now >= deadline:
             raise RuntimeError('引擎正在停止，请稍后刷新。')
-        if backend == 'ed2k' and retries < 4 and now >= retry_at:
+        if backend == 'ed2k' and not managed and retries < 4 and now >= retry_at:
             # amulecmd sends shutdown without waiting for an acknowledgement.
             # A successful client exit alone therefore does not prove delivery.
             retries += 1
