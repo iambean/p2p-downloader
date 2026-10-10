@@ -2,6 +2,33 @@ import XCTest
 @testable import P2PCore
 
 final class PresentationTests: XCTestCase {
+    func testEnglishDefaultAndSystemDialogPreference() throws {
+        let suite = "Mora.LanguageTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(AppLanguage.stored(nil), .english)
+        XCTAssertEqual(AppLanguage.stored("invalid"), .english)
+        AppLanguage.prepareSystemDialogs(defaults: defaults)
+        XCTAssertEqual(defaults.stringArray(forKey: "AppleLanguages"), ["en"])
+        defaults.set("zh-Hans", forKey: "appLanguage")
+        AppLanguage.prepareSystemDialogs(defaults: defaults)
+        XCTAssertEqual(defaults.stringArray(forKey: "AppleLanguages"), ["zh-Hans"])
+        defaults.set("system", forKey: "appLanguage")
+        AppLanguage.prepareSystemDialogs(defaults: defaults)
+        XCTAssertNil(defaults.persistentDomain(forName: suite)?["AppleLanguages"])
+        XCTAssertEqual(AppLanguage.stored(defaults.string(forKey: "appLanguage")), .system)
+    }
+
+    func testEnglishDownloadAndErrorMessages() {
+        let l = L10n(.english)
+        XCTAssertEqual(l.text("下载并发"), "Parallel downloads")
+        XCTAssertEqual(l.text("1 个连接"), "1 connection")
+        XCTAssertEqual(l.format("%d 个连接", 4), "4 connections")
+        XCTAssertEqual(l.text("无法读取控制接口错误详情：HTTP 400"), "Cannot read the control response error details: HTTP 400")
+        XCTAssertEqual(l.text("下载目录所在磁盘发生变化，未删除文件。"), "The download drive has changed. No files were deleted.")
+        XCTAssertEqual(l.text("无法读取种子文件：/tmp/中文.torrent"), "Cannot read torrent file: /tmp/中文.torrent")
+    }
+
     func testLanguageSelectionAndFormattedMessages() {
         XCTAssertEqual(AppLanguage.system.resolved(preferred: ["zh-Hans-CN"]), .chinese)
         XCTAssertEqual(AppLanguage.system.resolved(preferred: ["fr-FR", "zh-Hans"]), .english)

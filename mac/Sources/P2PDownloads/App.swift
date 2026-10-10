@@ -1,7 +1,18 @@
 import AppKit
 import SwiftUI
+import P2PCore
 
 @main
+enum MoraLauncher {
+    @MainActor static func main() {
+        // Rendering a preview must not alter the user's language preference.
+        if !CommandLine.arguments.contains("--demo") && !CommandLine.arguments.contains("--render-preview") {
+            AppLanguage.prepareSystemDialogs()
+        }
+        P2PDownloadsApp.main()
+    }
+}
+
 struct P2PDownloadsApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene { Settings { EmptyView() } }

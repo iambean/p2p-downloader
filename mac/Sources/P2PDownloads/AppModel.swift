@@ -24,7 +24,7 @@ final class AppModel: ObservableObject {
     @Published var pendingDeletion: DownloadTask?
     @Published var retainedFilesPath: String?
     var panelVisible = false { didSet { if timer != nil { scheduleRefresh() } } }
-    @Published var language: AppLanguage = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "system") ?? .system
+    @Published var language = AppLanguage.stored(UserDefaults.standard.string(forKey: "appLanguage"))
     var l: L10n {
         let preferred = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["AppleLanguages"] as? [String]
         return L10n(language.resolved(preferred: preferred ?? Locale.preferredLanguages))

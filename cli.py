@@ -18,7 +18,7 @@ import urllib.request
 
 import engine
 
-VERSION = '0.5.0'
+VERSION = '0.5.1'
 SERVER_LIST = 'https://upd.emule-security.org/server.met'
 
 

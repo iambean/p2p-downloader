@@ -130,11 +130,11 @@ def rpc(state, method, params=None):
         try:
             result = json.load(exc)
         except (ValueError, UnicodeError):
-            raise RuntimeError(f'BT 控制接口返回 HTTP {exc.code}，无法读取错误详情。') from exc
+            raise RuntimeError(f'无法读取控制接口错误详情：HTTP {exc.code}') from exc
         finally:
             exc.close()
         if not isinstance(result, dict) or not isinstance(result.get('error'), dict):
-            raise RuntimeError(f'BT 控制接口返回 HTTP {exc.code}，缺少有效的 RPC 错误详情。') from exc
+            raise RuntimeError(f'控制接口缺少有效的 RPC 错误详情：HTTP {exc.code}') from exc
     if not isinstance(result, dict):
         raise RuntimeError('BT 控制接口返回了无效响应。')
     if 'error' in result:
@@ -562,7 +562,7 @@ def finish_cleanup(state, backend, identifier, records=None, item=None):
     try:
         file_actions.trash_records(plan['records'])
     except Exception as exc:
-        raise RuntimeError(f'任务已停止，但文件清理未完成：{exc} 可再次删除重试。') from exc
+        raise RuntimeError(f'任务已停止，但文件清理未完成，可再次删除重试：{exc}') from exc
     path.unlink()
     return count
 

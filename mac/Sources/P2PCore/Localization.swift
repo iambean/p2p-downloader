@@ -2,6 +2,16 @@ import Foundation
 
 public enum AppLanguage: String, CaseIterable {
     case system, chinese = "zh-Hans", english = "en"
+    public static func stored(_ value: String?) -> AppLanguage {
+        value.flatMap(AppLanguage.init(rawValue:)) ?? .english
+    }
+
+    /// Configure AppKit/Sparkle before the application or its windows are created.
+    public static func prepareSystemDialogs(defaults: UserDefaults = .standard) {
+        let language = stored(defaults.string(forKey: "appLanguage"))
+        if language == .system { defaults.removeObject(forKey: "AppleLanguages") }
+        else { defaults.set([language.rawValue], forKey: "AppleLanguages") }
+    }
     public func resolved(preferred: [String] = Locale.preferredLanguages) -> AppLanguage {
         self == .system ? ((preferred.first ?? "en").hasPrefix("zh") ? .chinese : .english) : self
     }

@@ -258,10 +258,10 @@ struct PanelView: View {
                     Divider()
                     Menu(l.text("下载并发")) {
                         Picker(l.text("同时下载文件数"), selection: Binding(get: { model.snapshot.transferSettings?["max_concurrent"] ?? 2 }, set: { model.configureTransfers(maxConcurrent: $0) })) {
-                            ForEach([1, 2, 4, 8], id: \.self) { count in Text(l.format("%d 个文件", count)).tag(count) }
+                            ForEach([1, 2, 4, 8], id: \.self) { count in Text(count == 1 ? l.text("1 个文件") : l.format("%d 个文件", count)).tag(count) }
                         }
                         Picker(l.text("单文件 HTTP 连接数"), selection: Binding(get: { model.snapshot.transferSettings?["http_connections"] ?? 4 }, set: { model.configureTransfers(httpConnections: $0) })) {
-                            ForEach([1, 2, 4, 8, 16], id: \.self) { count in Text(l.format("%d 个连接", count)).tag(count) }
+                            ForEach([1, 2, 4, 8, 16], id: \.self) { count in Text(count == 1 ? l.text("1 个连接") : l.format("%d 个连接", count)).tag(count) }
                         }
                         Text(l.text("多文件并发适用于 HTTP 和 BT；单文件分段需要服务器支持 Range。"))
                         Text(l.text("连接数对新的 HTTP 任务和重试任务生效。"))
@@ -270,9 +270,9 @@ struct PanelView: View {
                     Toggle(l.text("隐藏文件名"), isOn: $model.hidesFileNames)
                     Divider()
                     Picker(l.text("语言"), selection: Binding(get: { model.language }, set: model.setLanguage)) {
-                        Text(l.text("跟随系统")).tag(AppLanguage.system)
-                        Text("简体中文").tag(AppLanguage.chinese)
                         Text("English").tag(AppLanguage.english)
+                        Text("简体中文").tag(AppLanguage.chinese)
+                        Text(l.text("跟随系统")).tag(AppLanguage.system)
                     }
                     Text(l.text("系统对话框将在下次启动时使用所选语言。"))
                     Divider()
